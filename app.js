@@ -182,7 +182,21 @@
   const hooks = { loadSdk: () => import(SDK_URL) };
   function readKey() { try { return localStorage.getItem("coral.apikey") || ""; } catch (e) { return ""; } }
   $("apikey").value = readKey(); $("rememberkey").checked = !!readKey();
-  $("useclaude").addEventListener("change", () => { $("claudebox").hidden = !$("useclaude").checked; if ($("useclaude").checked && !$("apikey").value) $("apikey").focus(); });
+  // Hosted inside another site (an office's own private page): index.html?embed=1 drops the outside links, and
+  // &keyurl=<a URL on the same site> names a page that answers {"key": "sk-ant-…"} to a signed-in visitor. That
+  // key is used for Claude drafting, held in memory only, and sent nowhere but Anthropic.
+  const QS = new URLSearchParams(location.search);
+  let hostKey = "";
+  if (QS.get("embed") === "1") document.querySelectorAll("header.bar a").forEach((a) => { a.hidden = true; });
+  const keyUrl = QS.get("keyurl") || "";
+  if (keyUrl && !/^[a-z][a-z0-9+.-]*:|^\/\/|\\/i.test(keyUrl)) {
+    fetch(keyUrl, { credentials: "same-origin", cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((j) => {
+      if (!j || typeof j.key !== "string" || !j.key) return;
+      hostKey = j.key; $("useclaude").checked = true; $("claudebox").hidden = true;
+      $("useclaude").parentNode.lastChild.textContent = " Have Claude draft it";
+    }).catch(() => { /* no key from the host: the visitor's own key still works */ });
+  }
+  $("useclaude").addEventListener("change", () => { $("claudebox").hidden = !$("useclaude").checked || !!hostKey; if ($("useclaude").checked && !hostKey && !$("apikey").value) $("apikey").focus(); });
 
   function applyFigures(figs, note) {
     figs = figs.filter((f) => f.rows && f.rows.length);
@@ -202,9 +216,9 @@
   }
   let drafting = null;
   async function makeWithClaude(text) {
-    const key = $("apikey").value.trim();
+    const key = hostKey || $("apikey").value.trim();
     if (!key) { leftStatus("Paste your Anthropic API key first."); $("apikey").focus(); return; }
-    try { if ($("rememberkey").checked) localStorage.setItem("coral.apikey", key); else localStorage.removeItem("coral.apikey"); } catch (e) { /* storage unavailable */ }
+    if (!hostKey) { try { if ($("rememberkey").checked) localStorage.setItem("coral.apikey", key); else localStorage.removeItem("coral.apikey"); } catch (e) { /* storage unavailable */ } }
     const t0 = Date.now(), tick = setInterval(() => leftStatus("Claude is drafting the chart… " + Math.round((Date.now() - t0) / 1000) + " s"), 500);
     $("claimgo").disabled = true;
     let Anthropic = null;

@@ -51,6 +51,9 @@ End
 ## Files
 `engine.js` (parsing, layout, routing, checks, description text; no DOM, `node tests/engine.test.js`), `export.js` (PDF through [pdf-lib](https://pdf-lib.js.org/), PNG through canvas), `app.js` (the page), `fonts/` (Liberation Sans, Serif and Mono, and Lexend, embedded in the PDF because Patent Center rejects fonts that are not embedded).
 
+## Hosting it inside your own office site
+Serve the files behind your sign-in and open `index.html?embed=1&keyurl=<a URL on the same site>`. `embed=1` drops the outside links. The `keyurl` page answers `{"key": "sk-ant-…"}` to a signed-in visitor; Claude drafting then uses that key (held in memory only, sent only to Anthropic) and nobody pastes one.
+
 ## What it is not
 It is not legal advice, and the checker covers the rules above, not all of 37 CFR 1.84. Review every drawing before filing.
 
