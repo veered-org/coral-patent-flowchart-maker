@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Patent Flowchart Maker</title>
-<meta name="description" content="Turn a list of steps or a pasted method claim into a decision flowchart, laid out for you and checked against the USPTO drawing rules (37 CFR 1.84). Exports PDF with embedded fonts, SVG and 300 dpi PNG, plus starter text for the Detailed Description.">
+<meta name="description" content="Turn a description, a pasted claim or a full claim set into a decision flowchart, laid out for you and checked against the USPTO drawing rules (37 CFR 1.84). Exports PDF with embedded fonts, SVG and 300 dpi PNG, plus starter text for the Detailed Description.">
 <!-- SITE-HEAD -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -108,10 +108,11 @@ textarea.out{min-height:150px;white-space:pre-wrap;font-family:inherit;font-size
 <main class="app">
   <section class="col left">
     <div class="tabs" id="tabs">
+      <button class="tab" data-tab="claim">Describe or paste</button>
       <button class="tab on" data-tab="steps">Steps</button>
       <button class="tab" data-tab="outline">Outline</button>
-      <button class="tab" data-tab="claim">Paste a claim</button>
     </div>
+    <div class="status" id="leftstatus"></div>
     <div id="pane-steps">
       <div class="rows" id="rows"></div>
       <div class="adds">
@@ -130,8 +131,16 @@ textarea.out{min-height:150px;white-space:pre-wrap;font-family:inherit;font-size
       <p class="hint">Indent = branch or sub-step &nbsp;·&nbsp; <code>102: text</code> = numeral &nbsp;·&nbsp; ends in <code>?</code> = decision &nbsp;·&nbsp; <code>-&gt; 102</code> = loop &nbsp;·&nbsp; <code>(A)</code> = off-page connector</p>
     </div>
     <div id="pane-claim" hidden>
-      <textarea class="big claim" id="claim" placeholder="1. A method comprising: receiving …; determining …, wherein …; and transmitting …."></textarea>
-      <div class="adds"><button class="btn" id="claimgo">Split into steps</button></div>
+      <textarea class="big claim" id="claim" placeholder="Describe what it does, or paste one claim or the full claim set."></textarea>
+      <div class="adds"><button class="btn" id="claimgo">Make the flowchart</button></div>
+      <label class="chk" style="margin-top:10px"><input type="checkbox" id="useclaude"> Have Claude draft it (your Anthropic API key)</label>
+      <div id="claudebox" hidden>
+        <div class="adds" style="margin-top:4px">
+          <input type="password" id="apikey" placeholder="sk-ant-…" autocomplete="off" aria-label="Anthropic API key" style="flex:1;min-width:150px;border:1px solid #C9CED8;border-radius:7px;padding:4px 8px">
+          <label class="chk" style="margin:0"><input type="checkbox" id="rememberkey"> Remember</label>
+        </div>
+        <p class="hint">With Claude, the text goes to Anthropic under your key.</p>
+      </div>
     </div>
   </section>
 
@@ -230,8 +239,8 @@ textarea.out{min-height:150px;white-space:pre-wrap;font-family:inherit;font-size
 </main>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@pdf-lib/fontkit@1.1.1/dist/fontkit.umd.min.js"></script>
-<script src="engine.js?v=1"></script>
+<script src="engine.js?v=2"></script>
 <script src="export.js?v=1"></script>
-<script src="app.js?v=1"></script>
+<script src="app.js?v=2"></script>
 </body>
 </html>

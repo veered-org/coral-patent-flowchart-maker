@@ -54,5 +54,18 @@ ok(claim.length === 4 && claim[0].text === "Heating water to a set temperature" 
 const text = C.describe({ label: "3", rows, style: C.usptoStyle() });
 ok(/^FIG\. 3 is a flowchart/.test(text) && /At step 102, the method receives a sign-in request\./.test(text) && /If not, the method returns to step 102\./.test(text), "description text uses the chosen numerals");
 
+const SET = "1. A method for signing in a user, the method comprising:\nreceiving a sign-in request from a client\ndevice;\ndetermining whether the password is correct;\nin response to determining that the password is correct, creating a session token; and\nin response to determining that the password is not correct, counting a failed attempt.\n2. The method of claim 1, wherein the session token expires after one hour.\n3. The method of claim 1, further comprising: transmitting the session token.\n4. A system comprising a processor.\n5. A method of resetting a password, comprising: receiving a reset request; and sending a link.\n6. The method of claim 5, wherein the link expires.";
+const figs = C.textToFigures(SET);
+ok(figs.kind === "claims" && figs.figures.length === 2 && figs.figures[0].claim === 1 && figs.figures[1].claim === 5 && figs.figures[0].folded === 2, "claim set: one figure per independent method claim, dependents counted");
+const o1 = C.toOutline(figs.figures[0].rows);
+ok(o1 === "Receiving a sign-in request from a client device\nDetermining whether the password is correct {diamond}\n    Yes:\n        Creating a session token\n            wherein the session token expires after one hour\n    No:\n        Counting a failed attempt\nTransmitting the session token", "claim 1 with its dependents:\n" + o1);
+ok(C.toOutline(figs.figures[1].rows) === "Receiving a reset request\nSending a link\n    wherein the link expires", "claim 5 with claim 6 folded in");
+ok(figs.figures.every((f) => f.rows.every((r) => !r.num)), "claim sets get no numerals");
+const desc = C.textToFigures("The customer adds an item and then goes to checkout. If the customer has an account, they sign in; otherwise, they enter an address. If the charge fails, go back to checkout. Finally, the receipt is emailed.");
+ok(desc.kind === "description" && C.toOutline(desc.figures[0].rows) === "Start\nThe customer adds an item\nGoes to checkout\nThe customer has an account?\n    Yes:\n        They sign in\n    No:\n        They enter an address\nThe charge fails?\n    Yes:\n        -> Goes to checkout\nThe receipt is emailed\nEnd", "description becomes steps, decisions and a loop");
+const dl = C.layout({ label: "2", rows: desc.figures[0].rows, style: C.usptoStyle() }, measure);
+ok(!dl.issues.some((i) => /was not found/.test(i.msg)), "the loop from a description finds its step");
+ok(C.textToFigures("1. Fill the kettle\n2. Boil the water\n3. Pour").figures[0].rows.length === 5, "a numbered list is a description, one step per line");
+
 console.log(fails ? fails + " FAILED" : "all passed");
 process.exit(fails ? 1 : 0);

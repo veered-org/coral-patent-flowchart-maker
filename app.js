@@ -155,9 +155,93 @@
     const t = e.target, s = t.selectionStart;
     t.setRangeText("    ", s, t.selectionEnd, "end"); t.dispatchEvent(new Event("input"));
   });
+  // Describe or paste: a description, one claim or a whole claim set becomes the chart.
+  // By rule in the browser; or, with the visitor's own Anthropic API key, drafted by Claude.
+  const SDK_URL = "https://cdn.jsdelivr.net/npm/@anthropic-ai/sdk@0.132.1/+esm";
+  const DRAFT_MODEL = "claude-opus-5-5";
+  const DRAFT_SCHEMA = { type: "object", additionalProperties: false, required: ["figures"], properties: { figures: { type: "array", items: {
+    type: "object", additionalProperties: false, required: ["title", "outline"], properties: { title: { type: "string" }, outline: { type: "string" } } } } } };
+  const DRAFT_PROMPT = [
+    "You turn a description of a process, a patent method claim, or a full patent claim set into flowchart outlines for a patent-drawing tool.",
+    "Return one figure per independent method (or process) claim. For a plain description, return one figure. If the claim set has no method claim, chart the first independent claim's operations.",
+    "",
+    "Outline format: one step per line; indentation is 4 spaces per level.",
+    "- A step is a line of text.",
+    "- A decision is a line ending in \"?\". The lines indented under it are its branches: each is a label ending in \":\" (Yes:, No:, or any other outcome), and the steps of that branch are indented under the label. A branch with nothing under it continues to the step after the decision.",
+    "- \"-> \" followed by the exact text of another step sends the flow to that step (a loop back, or a jump ahead). It is the last line of its branch.",
+    "- Lines indented under an ordinary step (not a decision) are its sub-steps.",
+    "- \"Start\" and \"End\" on their own lines are terminators.",
+    "",
+    "Rules:",
+    "- Never add reference numerals: the user assigns them. Keep a numeral only when the user's text already gives one for that step, written as \"102: step text\".",
+    "- From claims: keep each step in the claim's own words (drop the preamble, enumerators and a trailing \"and\"), in the order recited. Fold each dependent claim into its independent claim's figure: steps a dependent claim adds (\"further comprising\") go where they belong in the flow; a \"wherein\" clause becomes a sub-step under the step it limits, keeping its wording. A wherein clause that limits a decision goes under the step just before that decision. Turn conditional language (\"determining whether\", \"in response to determining that\") into a decision with labelled branches. Do not add steps the claims do not recite, and do not add Start or End.",
+    "- From a description: step text of about twelve words at most, in the imperative; decisions phrased as questions; begin with Start and finish with End.",
+    "- title: a few words, such as \"Claim 1: signing in a user\".",
+  ].join("\n");
+  const leftStatus = (t) => { $("leftstatus").textContent = t || ""; };
+  const hooks = { loadSdk: () => import(SDK_URL) };
+  function readKey() { try { return localStorage.getItem("coral.apikey") || ""; } catch (e) { return ""; } }
+  $("apikey").value = readKey(); $("rememberkey").checked = !!readKey();
+  $("useclaude").addEventListener("change", () => { $("claudebox").hidden = !$("useclaude").checked; if ($("useclaude").checked && !$("apikey").value) $("apikey").focus(); });
+
+  function applyFigures(figs, note) {
+    figs = figs.filter((f) => f.rows && f.rows.length);
+    if (!figs.length) { leftStatus("Nothing to chart in that text."); return; }
+    const f0 = fig(); f0.rows = figs[0].rows; f0.pageLabels = [];
+    figs.slice(1).forEach((x, i) => { const nf = newFigure("", x.rows); nf.style = clone(f0.style); state.figures.splice(state.cur + 1 + i, 0, nf); });
+    sel = -1; commit(); showTab("steps"); renderAll();
+    leftStatus(note + (figs.length > 1 ? " " + figs.length + " figures: the new ones need a figure number." : ""));
+  }
+  const list = (a) => (a.length < 2 ? a.join("") : a.slice(0, -1).join(", ") + " and " + a[a.length - 1]);
+  function makeByRule(text) {
+    const r = C.textToFigures(text);
+    if (r.kind === "claims") {
+      const folded = r.figures.reduce((n, f) => n + (f.folded || 0), 0);
+      applyFigures(r.figures, "Charted claim" + (r.figures.length > 1 ? "s " : " ") + list(r.figures.map((f) => String(f.claim))) + (folded ? ", with " + folded + " dependent claim" + (folded > 1 ? "s" : "") + " folded in." : "."));
+    } else applyFigures(r.figures, "Charted your description.");
+  }
+  let drafting = null;
+  async function makeWithClaude(text) {
+    const key = $("apikey").value.trim();
+    if (!key) { leftStatus("Paste your Anthropic API key first."); $("apikey").focus(); return; }
+    try { if ($("rememberkey").checked) localStorage.setItem("coral.apikey", key); else localStorage.removeItem("coral.apikey"); } catch (e) { /* storage unavailable */ }
+    const t0 = Date.now(), tick = setInterval(() => leftStatus("Claude is drafting the chart… " + Math.round((Date.now() - t0) / 1000) + " s"), 500);
+    $("claimgo").disabled = true;
+    let Anthropic = null;
+    try {
+      ({ default: Anthropic } = await hooks.loadSdk());
+      const client = new Anthropic({ apiKey: key, dangerouslyAllowBrowser: true });
+      drafting = client.beta.messages.stream({
+        model: DRAFT_MODEL,
+        max_tokens: 16000,
+        betas: ["server-side-fallback-2026-07-01"],
+        fallbacks: "default",
+        output_config: { effort: "medium", format: { type: "json_schema", schema: DRAFT_SCHEMA } },
+        system: DRAFT_PROMPT,
+        messages: [{ role: "user", content: text }],
+      });
+      const msg = await drafting.finalMessage();
+      if (msg.stop_reason === "refusal") throw new Error("Claude declined this request.");
+      if (msg.stop_reason === "max_tokens") throw new Error("the answer was cut off; try one claim at a time.");
+      const out = JSON.parse(msg.content.filter((b) => b.type === "text").map((b) => b.text).join(""));
+      const figs = (out.figures || []).map((f) => ({ rows: C.parseOutline(f.outline), title: f.title }));
+      clearInterval(tick);
+      applyFigures(figs, "Claude drafted " + (figs.length > 1 ? list(figs.map((f) => "“" + f.title + "”")) + "." : "the chart.") + " Check it against your text.");
+    } catch (err) {
+      clearInterval(tick); console.error(err);
+      let m = err && err.message ? err.message : String(err);
+      if (Anthropic && err instanceof Anthropic.AuthenticationError) m = "That API key was not accepted.";
+      else if (Anthropic && err instanceof Anthropic.PermissionDeniedError) m = "That API key is not allowed to do this (check its workspace and billing).";
+      else if (Anthropic && err instanceof Anthropic.RateLimitError) m = "Too many requests just now; wait a minute and try again.";
+      else if (Anthropic && err instanceof Anthropic.APIConnectionError) m = "Could not reach Anthropic (offline, or blocked by the network).";
+      else if (!Anthropic) m = "Could not load the Claude library: " + m;
+      leftStatus("Claude could not draft it: " + m);
+    } finally { drafting = null; $("claimgo").disabled = false; }
+  }
   $("claimgo").addEventListener("click", () => {
-    const r = C.parseClaim($("claim").value); if (!r.length) return;
-    fig().rows = r; sel = -1; commit(); showTab("steps"); renderAll();
+    const text = $("claim").value.trim();
+    if (!text) { leftStatus("Type a description or paste claims first."); return; }
+    if ($("useclaude").checked) makeWithClaude(text); else makeByRule(text);
   });
 
   // ---------------------------------------------------------------- style controls
@@ -376,5 +460,5 @@
   if (document.fonts && document.fonts.load) {
     Promise.all(Object.keys(C.FONTS).map((k) => document.fonts.load("20px '" + C.FONTS[k].family + "'").catch(() => null))).then(() => renderPreview());
   }
-  window.CoralApp = { get state() { return state; }, layout: () => L, doExport };
+  window.CoralApp = { get state() { return state; }, layout: () => L, doExport, hooks };
 })();

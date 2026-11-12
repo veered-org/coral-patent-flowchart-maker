@@ -138,26 +138,185 @@
   }
 
   // Splits a pasted method claim into steps; "wherein" clauses become sub-steps.
-  function parseClaim(text) {
+  // opt.body: the text is already the body (no preamble or "comprising" to skip).
+  const upFirst = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+  const cleanClause = (s) => s.replace(/^\s*(?:and\/or|and|or)\b[\s,]*/i, "").replace(/^\(?[a-z0-9]{1,3}[).]\s+/i, "")
+    .replace(/[\s,;]*\b(?:and|or)\s*$/i, "").replace(/[\s.,;:]+$/, "").trim();
+  function parseClaim(text, opt) {
     let t = String(text || "").replace(/\r/g, "").trim().replace(/^\s*(?:claim\s*)?\d+\s*[.)]\s*/i, "");
-    const m = t.match(/\b(?:compris(?:ing|es)|includ(?:ing|es)|consist(?:ing|s)(?:\s+essentially)?\s+of)(?:\s+the\s+(?:steps|acts|operations)(?:\s+of)?)?\s*[:,—-]?\s*/i);
-    if (m) t = t.slice(m.index + m[0].length);
-    const rows = [], up = (s) => s.charAt(0).toUpperCase() + s.slice(1);
-    const clean = (s) => s.replace(/^\s*(?:and\/or|and|or)\b[\s,]*/i, "").replace(/^\(?[a-z0-9]{1,3}[).]\s+/i, "")
-      .replace(/[\s,;]*\b(?:and|or)\s*$/i, "").replace(/[\s.,;:]+$/, "").trim();
-    for (const seg of t.split(/;|\n+/)) {
-      let s = clean(seg);
+    if (!(opt && opt.body)) {
+      const m = t.match(/\b(?:compris(?:ing|es)|includ(?:ing|es)|consist(?:ing|s)(?:\s+essentially)?\s+of)(?:\s+the\s+(?:steps|acts|operations)(?:\s+of)?)?\s*[:,—-]?\s*/i);
+      if (m) t = t.slice(m.index + m[0].length);
+    }
+    // text copied from a PDF is wrapped at arbitrary places: when the claim has
+    // semicolons they mark the steps and the line breaks mean nothing
+    const segs = /;/.test(t) ? t.replace(/\s*\n\s*/g, " ").split(";") : t.split(/\n+/);
+    const rows = [];
+    for (const seg of segs) {
+      let s = cleanClause(seg);
       if (!s) continue;
       if (!rows.length && /^(?:the|a|an)\s+(?:method|process)\b[^,]*$/i.test(s)) continue;
       s = s.replace(/^(?:the|a|an)\s+(?:method|process)\s+(?:of|according to|as (?:claimed|recited) in)\s+claim\s+\d+\s*,?\s*/i, "");
-      const parts = s.split(/,?\s+(?=(?:and\s+)?where(?:in|by)\b)/i).map(clean).filter(Boolean);
+      const parts = s.split(/,?\s+(?=(?:and\s+)?where(?:in|by)\b)/i).map(cleanClause).filter(Boolean);
       parts.forEach((p, k) => {
         const sub = /^where(?:in|by)\b/i.test(p) && rows.length > 0;
-        rows.push({ level: sub ? 1 : 0, text: sub ? p : up(p), num: "", shape: "" });
+        rows.push({ level: sub ? 1 : 0, text: sub ? p : upFirst(p), num: "", shape: "" });
         if (k === 0 && !sub) rows[rows.length - 1].level = 0;
       });
     }
     return rows;
+  }
+
+  // ------------------------------------------------------------------ claim sets and descriptions
+  const STOPW = new Set("the a an of to in on at by for from with and or said wherein whereby where method process claim claims further comprising comprises comprise including includes include step steps one more least plurality first second third each that which is are be being been as its it into based using via when if then than such at least".split(" "));
+  const stems = (t) => String(t).toLowerCase().replace(/[^a-z0-9]+/g, " ").split(" ")
+    .filter((w) => w.length > 2 && !STOPW.has(w)).map((w) => (w.length > 4 ? w.replace(/(?:ies)$/, "y").replace(/(?:ing|ed|es|s)$/, "") : w));
+  const NEG = /\b(?:not|fails?|failed|invalid|incorrect|unable|cannot|absent|unsuccessful|no longer)\b|n't\b/i;
+
+  // A pasted claim set -> [{n, text, parent}] (parent = the claim a dependent claim refers to).
+  function splitClaims(text) {
+    const t = String(text || "").replace(/\r/g, "");
+    const re = /(?:^|\n)[ \t]*(?:claim\s+)?(\d{1,3})\s*[.):][ \t]+(?=\S)/gi, marks = [];
+    let m;
+    while ((m = re.exec(t))) { const n = +m[1]; if (!marks.length || n === marks[marks.length - 1].n + 1) marks.push({ n, start: m.index, body: m.index + m[0].length }); }
+    if (!marks.length) return [{ n: 1, text: t.trim(), parent: null }];
+    return marks.map((k, i) => {
+      const body = t.slice(k.body, i + 1 < marks.length ? marks[i + 1].start : t.length).trim();
+      const pm = body.slice(0, 220).match(/\bclaims?\s+(\d{1,3})/i);
+      return { n: k.n, text: body, parent: pm && +pm[1] !== k.n ? +pm[1] : null };
+    });
+  }
+
+  // "determining whether ..." becomes a diamond, and a following "in response to
+  // determining that X, doing Y" becomes its Yes or No branch. The wording is kept.
+  function claimDecisions(rows) {
+    const out = [];
+    let dec = -1, used = {}, pending = null;
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      if (r.level > 0) { out.push(Object.assign({}, r, { level: r.level + (r._shift || 0) })); continue; }
+      if (pending) { out.push(pending); dec = out.length - 1; used = {}; pending = null; }
+      let j = i + 1; while (j < rows.length && rows[j].level > 0) j++;
+      const m = r.text.match(/^(?:in response to|responsive to|upon|based on)\s+(?:a\s+)?determin(?:ing|ation)\s+(?:that\s+|whether\s+)?(.+?),\s*(.+)$/i)
+        || r.text.match(/^(?:if|when)\s+(.+?),\s*(?:then\s+)?(.+)$/i);
+      if (m && dec >= 0) {
+        let label = NEG.test(m[1]) ? "No" : "Yes";
+        if (used[label]) label = label === "Yes" ? "No" : "Yes";
+        if (used[label]) label = upFirst(m[1]).slice(0, 28);
+        used[label] = 1;
+        out.push({ level: 1, text: label + ":", num: "", shape: "" }, { level: 2, text: upFirst(m[2]), num: "", shape: "" });
+        for (let k = i + 1; k < j; k++) rows[k]._shift = 2;
+        continue;
+      }
+      const dm = r.text.match(/^(?:determin(?:ing|e)|check(?:ing)?|verify(?:ing)?|detect(?:ing)?|decid(?:ing|e)|evaluat(?:ing|e)|test(?:ing)?)\s+(?:whether|if)\s+(.+)$/i);
+      if (dm && j > i + 1) {
+        // a diamond cannot hold "wherein" sub-steps: the step keeps them and a
+        // short diamond follows it
+        out.push(Object.assign({}, r)); dec = -1;
+        pending = { level: 0, text: upFirst(dm[1]) + "?", num: "", shape: "" };
+        continue;
+      }
+      out.push(Object.assign({}, r, dm ? { shape: "diamond" } : {}));
+      if (dm) { dec = out.length - 1; used = {}; } else dec = -1;
+    }
+    if (pending) out.push(pending);
+    out.forEach((r) => { delete r._shift; });
+    return out;
+  }
+
+  // A claim set -> one figure per independent method claim. Dependent claims are folded
+  // in: "further comprising" adds steps, "wherein" becomes a sub-step of the step it is about.
+  function claimsToFigures(text) {
+    const claims = splitClaims(text), byN = {};
+    claims.forEach((c) => { byN[c.n] = c; });
+    const rootOf = (c) => { let g = 0; while (c.parent != null && byN[c.parent] && g++ < 60) c = byN[c.parent]; return c; };
+    const indep = claims.filter((c) => c.parent == null || !byN[c.parent]);
+    let heads = indep.filter((c) => /^(?:an?|the|one or more)?\s*(?:[\w-]+[\s,]+){0,6}?(?:method|process)\b/i.test(c.text));
+    if (!heads.length) heads = indep.slice(0, 1);
+    return heads.map((h) => {
+      const rows = parseClaim(h.text), owner = rows.map(() => h.n);
+      let folded = 0;
+      for (const d of claims) {
+        if (d === h || d.parent == null || rootOf(d) !== h) continue;
+        folded++;
+        const body = d.text.replace(/\s*\n\s*/g, " ").replace(/^.*?\bclaims?\s+\d{1,3}(?:\s*(?:,|or|and|to|-|through)\s*\d{1,3})*\s*,?\s*/i, "");
+        const fm = body.match(/^(?:and\s+)?(?:further\s+(?:compris(?:ing|es)|includ(?:ing|es))|(?:compris(?:ing|es)|includ(?:ing|es))\s+the\s+further\s+steps?\s+of)\s*:?\s*/i);
+        if (fm) { for (const r of parseClaim(body.slice(fm[0].length), { body: true })) { rows.push(r); owner.push(d.n); } continue; }
+        const sub = cleanClause(body); if (!sub) continue;
+        const want = stems(sub); let best = -1, bestScore = 0;
+        rows.forEach((r, i) => {
+          if (r.level) return;
+          const have = new Set(stems(r.text));
+          const sc = want.filter((w) => have.has(w)).length + (owner[i] === d.parent ? 0.5 : 0);
+          if (sc > bestScore) { bestScore = sc; best = i; }
+        });
+        if (best < 0 || bestScore < 1) { for (let i = rows.length - 1; i >= 0; i--) if (!rows[i].level) { best = i; break; } }
+        if (best < 0) { rows.push({ level: 0, text: upFirst(sub), num: "", shape: "" }); owner.push(d.n); continue; }
+        let at = best + 1; while (at < rows.length && rows[at].level > 0) at++;
+        rows.splice(at, 0, { level: 1, text: sub, num: "", shape: "" }); owner.splice(at, 0, d.n);
+      }
+      return { claim: h.n, rows: claimDecisions(rows), folded };
+    });
+  }
+
+  // A plain description ("First the user signs in. If the password is wrong, ...") -> rows.
+  function parseDescription(text, opt) {
+    const t = String(text || "").replace(/\r/g, "").trim();
+    if (!t) return [];
+    const BUL = /^(?:[-*•–]|\d+[.)]|step\s+\d+[:.)]?)\s+/i;
+    let items = t.split(/\n+/).map((s) => s.trim()).filter(Boolean);
+    if (!(items.length > 1 && items.filter((s) => BUL.test(s)).length >= items.length * 0.6)) items = t.replace(/\s*\n\s*/g, " ").split(/(?<=[.!?])\s+(?=[A-Z0-9"“(])/);
+    const LEAD = /^(?:first(?:ly)?|second(?:ly)?|third(?:ly)?|then|next|after that|afterwards?|finally|lastly|and|also|once (?:that is )?done|to (?:start|begin))\s*,?\s+/i;
+    const tidy = (s) => { s = s.replace(BUL, ""); let g = 0; while (LEAD.test(s) && g++ < 4) s = s.replace(LEAD, ""); return s.replace(/[\s.;:,!]+$/, "").trim(); };
+    const rows = [], row = (level, text) => rows.push({ level, text, num: "", shape: "" });
+    const steps = (level, s) => {
+      for (let p of String(s).split(/\s*[;,]?\s+(?:and\s+)?then,?\s+|;\s+/i)) {
+        p = tidy(p); if (!p) continue;
+        const g = p.match(/^(?:go(?:es)?|return(?:s)?|loops?|jumps?)\s+back\s+to\s+(?:the\s+)?(.+)$/i) || p.match(/^(?:repeat|start(?:s)? over)\s*(?:from\s+)?(?:the\s+)?(.*)$/i);
+        if (g) rows.push({ level, text: "-> ", num: "", shape: "", _to: g[1].trim() }); else row(level, upFirst(p));
+      }
+    };
+    let lastDec = -1;
+    for (const item of items) {
+      const s = tidy(item); if (!s) continue;
+      const other = s.match(/^(?:otherwise|else|if not)\b,?\s*(.+)$/i);
+      if (other && lastDec >= 0) { row(1, "No:"); steps(2, other[1]); lastDec = -1; continue; }
+      const m = s.match(/^(if|in case|unless)\s+(.+?),\s*(?:then\s+)?(.+)$/i);
+      if (m) {
+        const parts = m[3].split(/\s*[;,.]\s*(?:otherwise|else|if not),?\s+/i), flip = /^unless$/i.test(m[1]);
+        row(0, upFirst(m[2]) + "?"); row(1, flip ? "No:" : "Yes:"); steps(2, parts[0]);
+        if (parts[1]) { row(1, flip ? "Yes:" : "No:"); steps(2, parts.slice(1).join(", ")); lastDec = -1; } else lastDec = flip ? -1 : rows.length;
+        continue;
+      }
+      lastDec = -1; steps(0, s);
+    }
+    // "go back to step 2" / "go back to the sign-in": point the loop at a step by its text
+    const tops = rows.filter((r) => r.level === 0 && r._to == null);
+    for (const r of rows) {
+      if (r._to == null) continue;
+      const to = r._to.replace(/^step\s+/i, ""); let target = null;
+      if (/^\d+$/.test(to)) target = tops[+to - 1];
+      else if (!to || /^(?:start|beginning|top)$/i.test(to)) target = tops[0];
+      else { const want = stems(to); let bs = 0; for (const c of rows) { if (c._to != null || /:$/.test(c.text)) continue; const have = new Set(stems(c.text)); const sc = want.filter((w) => have.has(w)).length; if (sc > bs) { bs = sc; target = c; } } }
+      r.text = "-> " + (target ? target.text : to); delete r._to;
+    }
+    if (!(opt && opt.terminators === false) && rows.length) {
+      rows.unshift({ level: 0, text: "Start", num: "", shape: "" });
+      const lastTop = rows.filter((r) => r.level === 0).pop();
+      if (!RE_GOTO.test(lastTop.text) && !RE_END.test(lastTop.text)) row(0, "End");
+    }
+    return rows;
+  }
+
+  // Description, one claim, or a claim set -> { kind, figures: [{rows, claim, folded}] }
+  function textToFigures(text, opt) {
+    const t = String(text || "").trim();
+    if (!t) return { kind: "empty", figures: [] };
+    const claimy = /^\s*(?:claim\s+)?\d{1,3}\s*[.)]\s+(?:An?|The|One)\b/im.test(t)
+      || (/\b(?:compris(?:ing|es)|consist(?:ing|s) of)\b/i.test(t) && /;/.test(t)) || /\b(?:of|in|to)\s+claim\s+\d/i.test(t);
+    if (claimy) return { kind: "claims", figures: claimsToFigures(t).filter((f) => f.rows.length) };
+    const rows = parseDescription(t, opt);
+    return { kind: "description", figures: rows.length ? [{ rows }] : [] };
   }
 
   // ------------------------------------------------------------------ tree
@@ -722,5 +881,5 @@
   }
 
   return { PT_CM, PAPERS, USPTO_MARGINS, MIN_LETTER_CM, FONTS, SHAPES, HEADS, PRESETS, minFontSize, usptoStyle, webStyle, normStyle,
-    parseOutline, toOutline, parseClaim, rowKind, isDecisionRow, parentOf, buildTree, layout, toSVG, pathD, describe };
+    parseOutline, toOutline, parseClaim, splitClaims, claimsToFigures, parseDescription, textToFigures, rowKind, isDecisionRow, parentOf, buildTree, layout, toSVG, pathD, describe };
 });

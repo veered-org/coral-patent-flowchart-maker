@@ -1,17 +1,21 @@
 # Patent Flowchart Maker (Coral): steps in, filing-ready flowchart out
 
-Coral turns a list of steps into a decision flowchart. Type the steps, paste a method claim, or write an indented outline; the tool places every shape and arrow, checks the sheet against the USPTO drawing rules (37 CFR 1.84), and exports a PDF with embedded fonts, an SVG, or a PNG at 300 or 600 dpi. A second preset makes the same chart for a website or a presentation.
+Coral turns a description, a claim, or a full claim set into a decision flowchart. Describe what the thing does, paste claims, type the steps, or write an indented outline; the tool places every shape and arrow, checks the sheet against the USPTO drawing rules (37 CFR 1.84), and exports a PDF with embedded fonts, an SVG, or a PNG at 300 or 600 dpi. A second preset makes the same chart for a website or a presentation.
 
 ![A sign-in flowchart as a USPTO formal drawing and in the website preset](docs/screenshot.png)
 
 **Try it:** open `index.html` from any web server (`python3 -m http.server`). Nothing is uploaded; charts are kept in the browser and in the project files you save.
 
 ## What it does
+- **Describe or paste:** type what the process does in plain sentences, or paste one claim or the whole claim set, and press Make the flowchart.
+  - A description becomes steps; "If …, …; otherwise, …" becomes a decision with both branches; "go back to …" becomes a loop.
+  - A claim set gives one figure per independent method claim. Dependent claims are folded in: "further comprising" adds steps, and a "wherein" clause becomes a sub-step of the step it limits. "Determining whether …" becomes a diamond, and "in response to determining that …" becomes its Yes or No branch. Claim wording is kept, and no numerals are added.
+  - Optionally, Claude drafts the chart instead (tick the box and paste your own Anthropic API key). The text then goes to Anthropic under your key; otherwise nothing leaves the browser.
 - **Steps:** add, edit, delete, reorder (buttons or drag), indent and outdent. Each step has its own shape: rectangle, rounded rectangle, diamond, oval, terminator, parallelogram, hexagon, circle.
 - **Decisions:** a step ending in `?` becomes a diamond; the rows indented under it are its branches (Yes / No, or any number of outcomes).
 - **Loops:** `-> 102` sends the flow back (or ahead) to step 102, routed around the chart on the side with the fewest crossings.
 - **Start / End** terminators, and **off-page connectors**: type `(A)` to continue on another sheet, or let a long chart break by itself onto circled letters.
-- **Sub-steps:** rows indented under a step are drawn as boxes inside it. A pasted claim's "wherein" clauses become sub-steps.
+- **Sub-steps:** rows indented under a step are drawn as boxes inside it.
 - **Style:** typeface, size, alignment, line weights, box padding and width, spacing, arrow line (straight, elbow, curved), solid or dashed, arrowhead shape and size, margins, paper. Save any combination as a preset; "USPTO formal" and "Website/presentation" are built in.
 - **Figures:** several figures per project; "Duplicate figure" copies one as the start of the next and asks for the new figure number.
 - **Detailed Description text:** starter sentences written from the chart with the numerals you chose ("At step 104, the method determines…").
