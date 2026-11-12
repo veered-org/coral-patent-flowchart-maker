@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Patent Flowchart Maker</title>
+<meta name="description" content="Turn a list of steps or a pasted method claim into a decision flowchart, laid out for you and checked against the USPTO drawing rules (37 CFR 1.84). Exports PDF with embedded fonts, SVG and 300 dpi PNG, plus starter text for the Detailed Description.">
+<!-- SITE-HEAD -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lexend:wght@300;400;500;600&display=swap">
+<style>
+:root{
+  --accent:#B5402B; --accent2:#9A3524; --hi:#C9A227; --hi-soft:#F7EDCF; --hi-ink:#8A6D1A;
+  --ink:#1F2937; --muted:#5B6474; --line:#E1E4EA; --page:#EEF0F3; --panel:#fff;
+  --ok:#1E7F4F; --bad:#B42318; --bar:#4A1A12; --bar-ink:#fff;
+}
+/* BRAND-VARS */
+@font-face{font-family:"Liberation Sans";src:url(fonts/LiberationSans-Regular.ttf)}
+@font-face{font-family:"Liberation Serif";src:url(fonts/LiberationSerif-Regular.ttf)}
+@font-face{font-family:"Liberation Mono";src:url(fonts/LiberationMono-Regular.ttf)}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%}
+body{margin:0;background:var(--page);color:var(--ink);font-family:'Lexend',Arial,sans-serif;font-size:14px;line-height:1.45;display:flex;flex-direction:column}
+button,input,select,textarea{font:inherit;color:inherit}
+a{color:var(--accent)}
+.bar{background:var(--bar);color:var(--bar-ink);display:flex;align-items:center;gap:12px;padding:7px 14px;border-bottom:3px solid var(--hi);flex-wrap:wrap}
+.bar .brand{font-weight:600;font-size:16px;white-space:nowrap}
+.bar .brand small{font-weight:300;opacity:.8;margin-left:6px}
+.bar .sp{flex:1}
+.bar a{color:var(--bar-ink);opacity:.85;text-decoration:none;font-size:13px}
+.bar a:hover{opacity:1;text-decoration:underline}
+.bar .tb{border:1px solid rgba(255,255,255,.35);background:transparent;color:#fff;border-radius:100px;padding:3px 12px;font-size:12.5px;cursor:pointer}
+.bar .tb:hover{background:rgba(255,255,255,.12)}
+.bar .tb[disabled]{opacity:.35;cursor:default}
+main.app{flex:1;min-height:0;display:grid;grid-template-columns:minmax(330px,430px) minmax(0,1fr) 300px;gap:0}
+@media (max-width:1100px){main.app{grid-template-columns:1fr;overflow:auto}html,body{height:auto}.col{max-height:none!important}}
+.col{background:var(--panel);overflow:auto;padding:12px 14px 30px;min-height:0}
+.col.left{border-right:1px solid var(--line)}
+.col.right{border-left:1px solid var(--line)}
+.stage{overflow:auto;padding:14px;min-height:0}
+.tabs{display:flex;gap:4px;margin-bottom:10px;flex-wrap:wrap}
+.tab{border:1px solid var(--line);background:#fff;border-radius:100px;padding:4px 14px;cursor:pointer;font-size:13px}
+.tab.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.figs{display:flex;gap:6px;align-items:center;margin-bottom:10px;flex-wrap:wrap}
+.figs .tab.on{background:var(--bar);border-color:var(--bar)}
+.btn{border:1.5px solid var(--accent);background:var(--accent);color:#fff;border-radius:100px;padding:5px 15px;cursor:pointer;font-weight:500;font-size:13px}
+.btn:hover{background:var(--accent2);border-color:var(--accent2)}
+.btn.alt{background:#fff;color:var(--accent)}
+.btn.alt:hover{background:#FBF1EE}
+.btn.sm{padding:2px 10px;font-size:12px}
+h2{font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);margin:16px 0 7px;font-weight:600}
+h2:first-child{margin-top:2px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 8px}
+.grid.four{grid-template-columns:repeat(4,1fr)}
+label.f{display:flex;flex-direction:column;font-size:11.5px;color:var(--muted);gap:2px;min-width:0}
+label.f.wide{grid-column:1/-1}
+label.f input,label.f select{border:1px solid #C9CED8;border-radius:7px;padding:4px 6px;background:#fff;font-size:13px;color:var(--ink);min-width:0;width:100%}
+label.f input[type=color]{padding:1px;height:28px}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--hi);outline-offset:0}
+.chk{display:flex;align-items:center;gap:7px;font-size:13px;margin:4px 0}
+.rows{display:flex;flex-direction:column;gap:3px}
+.r{display:flex;align-items:center;gap:3px;border-radius:7px;padding:2px 2px}
+.r.sel{background:var(--hi-soft)}
+.r.over{box-shadow:0 -2px 0 var(--accent)}
+.r .grip{cursor:grab;color:#A7AEBB;padding:0 2px;user-select:none;font-size:13px}
+.r input.num{width:54px;flex:none;text-align:center}
+.r input.txt{flex:1;min-width:60px}
+.r input,.r select{border:1px solid #D3D7DF;border-radius:6px;padding:3px 5px;font-size:13px;background:#fff}
+.r select{width:74px;flex:none;color:var(--muted)}
+.r .k{font-size:10.5px;color:var(--hi-ink);width:54px;flex:none;text-align:center;text-transform:uppercase;letter-spacing:.05em}
+.r .ib{border:0;background:none;color:#8A93A3;cursor:pointer;padding:1px 3px;font-size:13px;line-height:1;border-radius:4px}
+.r .ib:hover{color:var(--accent);background:#F4E4E0}
+.adds{display:flex;gap:5px;flex-wrap:wrap;margin-top:10px}
+textarea.big{width:100%;min-height:340px;border:1px solid #C9CED8;border-radius:9px;padding:9px 10px;font-family:'Liberation Mono',ui-monospace,Menlo,monospace;font-size:13px;line-height:1.5;resize:vertical;white-space:pre;overflow:auto;tab-size:4}
+textarea.claim{white-space:pre-wrap;font-family:inherit;min-height:220px}
+textarea.out{min-height:150px;white-space:pre-wrap;font-family:inherit;font-size:12.5px}
+.hint{font-size:12px;color:var(--muted);margin:6px 0}
+.sheet{background:#fff;box-shadow:0 1px 5px rgba(20,30,50,.18);margin:0 auto 16px;max-width:760px}
+.sheet svg{display:block;width:100%;height:auto}
+.sheet svg [data-ri]{cursor:pointer}
+.iss{font-size:12.5px;border-left:3px solid var(--bad);background:#FDF1F0;padding:4px 8px;margin:4px 0;border-radius:0 6px 6px 0}
+.iss.note{border-color:#C9CED8;background:#F5F6F8;color:var(--muted)}
+.iss[data-ri]{cursor:pointer}
+.okline{font-size:12.5px;color:var(--ok)}
+.confirm{border:1.5px solid var(--bad);background:#FDF1F0;border-radius:9px;padding:8px 10px;margin:8px 0;font-size:12.5px}
+.exp{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.status{font-size:12px;color:var(--muted);min-height:16px;margin-top:6px}
+</style>
+</head>
+<body>
+<header class="bar">
+<!-- BRAND -->
+  <span class="brand">Coral<small>Patent flowchart maker</small></span>
+<!-- /BRAND -->
+  <button class="tb" id="undo" title="Undo (Ctrl+Z)">Undo</button>
+  <button class="tb" id="redo" title="Redo (Ctrl+Y)">Redo</button>
+  <span class="sp"></span>
+  <button class="tb" id="open">Open project</button>
+  <button class="tb" id="save">Save project</button>
+  <input type="file" id="file" accept=".json,application/json" hidden>
+<!-- BRAND -->
+  <a href="https://veered.org/patent-flowchart-maker/">About</a>
+  <a href="https://github.com/veered-org/coral-patent-flowchart-maker" target="_blank" rel="noopener">Source code</a>
+<!-- /BRAND -->
+</header>
+<main class="app">
+  <section class="col left">
+    <div class="tabs" id="tabs">
+      <button class="tab on" data-tab="steps">Steps</button>
+      <button class="tab" data-tab="outline">Outline</button>
+      <button class="tab" data-tab="claim">Paste a claim</button>
+    </div>
+    <div id="pane-steps">
+      <div class="rows" id="rows"></div>
+      <div class="adds">
+        <button class="btn alt sm" data-add="step">+ Step</button>
+        <button class="btn alt sm" data-add="decision">+ Decision</button>
+        <button class="btn alt sm" data-add="branch">+ Branch</button>
+        <button class="btn alt sm" data-add="sub">+ Sub-step</button>
+        <button class="btn alt sm" data-add="loop">+ Loop back</button>
+        <button class="btn alt sm" data-add="start">+ Start</button>
+        <button class="btn alt sm" data-add="end">+ End</button>
+        <button class="btn alt sm" data-add="conn">+ Off-page connector</button>
+      </div>
+    </div>
+    <div id="pane-outline" hidden>
+      <textarea class="big" id="outline" spellcheck="false"></textarea>
+      <p class="hint">Indent = branch or sub-step &nbsp;·&nbsp; <code>102: text</code> = numeral &nbsp;·&nbsp; ends in <code>?</code> = decision &nbsp;·&nbsp; <code>-&gt; 102</code> = loop &nbsp;·&nbsp; <code>(A)</code> = off-page connector</p>
+    </div>
+    <div id="pane-claim" hidden>
+      <textarea class="big claim" id="claim" placeholder="1. A method comprising: receiving …; determining …, wherein …; and transmitting …."></textarea>
+      <div class="adds"><button class="btn" id="claimgo">Split into steps</button></div>
+    </div>
+  </section>
+
+  <section class="stage">
+    <div class="figs" id="figs"></div>
+    <div id="sheets"></div>
+  </section>
+
+  <section class="col right">
+    <h2>Figure</h2>
+    <div class="grid" id="figbox">
+      <label class="f">Fig. number<input id="figlabel" placeholder="3 or 4A" autocomplete="off"></label>
+      <label class="f">Label style<select data-k="caption"><option value="FIG.">FIG. 3</option><option value="Fig.">Fig. 3</option></select></label>
+    </div>
+    <div class="grid" id="pagelabels"></div>
+
+    <h2>Preset</h2>
+    <div class="grid">
+      <label class="f wide"><select id="preset"></select></label>
+    </div>
+    <div class="adds" style="margin-top:6px">
+      <button class="btn alt sm" id="presetsave">Save as preset</button>
+      <button class="btn alt sm" id="presetdel" hidden>Delete preset</button>
+    </div>
+    <div class="adds" id="presetname" hidden><input id="presetnm" placeholder="Preset name" style="flex:1;border:1px solid #C9CED8;border-radius:7px;padding:3px 7px"><button class="btn sm" id="presetok">Save</button></div>
+
+    <h2>USPTO drawing rules</h2>
+    <label class="chk"><input type="checkbox" data-k="compliance"> Compliance mode (37 CFR 1.84)</label>
+    <div id="issues"></div>
+
+    <h2>Page</h2>
+    <div class="grid">
+      <label class="f wide">Paper<select data-k="paper" id="paper"></select></label>
+    </div>
+    <div class="grid four" style="margin-top:6px">
+      <label class="f">Top cm<input type="number" step="0.1" min="0" data-k="margins.top"></label>
+      <label class="f">Bottom<input type="number" step="0.1" min="0" data-k="margins.bottom"></label>
+      <label class="f">Left<input type="number" step="0.1" min="0" data-k="margins.left"></label>
+      <label class="f">Right<input type="number" step="0.1" min="0" data-k="margins.right"></label>
+    </div>
+    <div class="adds" style="margin-top:6px"><button class="btn alt sm" id="usptomargins">Set USPTO margins</button></div>
+
+    <h2>Text</h2>
+    <div class="grid">
+      <label class="f wide">Typeface<select data-k="font" id="font"></select></label>
+      <label class="f"><span id="fslabel">Size pt</span><input type="number" step="0.5" data-k="fontSize" id="fontsize"></label>
+      <label class="f">Alignment<select data-k="align"><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select></label>
+      <label class="f wide">Numerals<select data-k="numeralPos"><option value="right">Beside the shape, right</option><option value="left">Beside the shape, left</option><option value="inside">Inside the shape</option></select></label>
+    </div>
+
+    <h2>Shapes</h2>
+    <div class="grid">
+      <label class="f">Step<select data-k="shape" class="shapesel"></select></label>
+      <label class="f">Decision<select data-k="decisionShape" class="shapesel"></select></label>
+      <label class="f">Start / End<select data-k="termShape" class="shapesel"></select></label>
+      <label class="f">Border pt<input type="number" step="0.25" min="0.25" data-k="borderWeight"></label>
+      <label class="f">Padding pt<input type="number" step="1" min="0" data-k="padding"></label>
+      <label class="f">Box width cm<input type="number" step="0.25" min="2" data-k="boxWidth"></label>
+      <label class="f">Row spacing pt<input type="number" step="1" min="12" data-k="gapY"></label>
+      <label class="f">Column spacing pt<input type="number" step="1" min="10" data-k="gapX"></label>
+    </div>
+
+    <h2>Arrows</h2>
+    <div class="grid">
+      <label class="f">Line<select data-k="line"><option value="elbow">Elbow</option><option value="straight">Straight</option><option value="curved">Curved</option></select></label>
+      <label class="f">Stroke<select data-k="dash"><option value="solid">Solid</option><option value="dashed">Dashed</option></select></label>
+      <label class="f">Arrowhead<select data-k="head" id="head"></select></label>
+      <label class="f">Head size pt<input type="number" step="0.5" min="2" data-k="headSize"></label>
+      <label class="f">Weight pt<input type="number" step="0.25" min="0.25" data-k="arrowWeight"></label>
+    </div>
+
+    <div id="colors">
+      <h2>Color</h2>
+      <div class="grid" style="grid-template-columns:repeat(3,1fr)">
+        <label class="f">Lines<input type="color" data-k="stroke"></label>
+        <label class="f">Fill<input type="color" data-k="fill"></label>
+        <label class="f">Text<input type="color" data-k="textColor"></label>
+      </div>
+      <label class="chk"><input type="checkbox" id="nofill"> No fill</label>
+    </div>
+
+    <h2>Export</h2>
+    <div id="confirm" class="confirm" hidden></div>
+    <div class="exp">
+      <button class="btn" data-exp="pdf">PDF</button>
+      <button class="btn alt" data-exp="svg">SVG</button>
+      <button class="btn alt" data-exp="png">PNG</button>
+      <select id="dpi" style="border:1px solid #C9CED8;border-radius:7px;padding:4px 6px;font-size:12.5px"><option value="300">300 dpi</option><option value="600">600 dpi</option></select>
+    </div>
+    <div class="status" id="status"></div>
+
+    <h2>Detailed Description text</h2>
+    <textarea class="big out" id="desc" readonly></textarea>
+    <div class="adds"><button class="btn alt sm" id="desccopy">Copy text</button><span class="status" id="copied"></span></div>
+  </section>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@pdf-lib/fontkit@1.1.1/dist/fontkit.umd.min.js"></script>
+<script src="engine.js?v=1"></script>
+<script src="export.js?v=1"></script>
+<script src="app.js?v=1"></script>
+</body>
+</html>
