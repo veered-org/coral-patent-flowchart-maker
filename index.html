@@ -86,6 +86,28 @@ textarea.out{min-height:150px;white-space:pre-wrap;font-family:inherit;font-size
 .okline{font-size:12.5px;color:var(--ok)}
 .confirm{border:1.5px solid var(--bad);background:#FDF1F0;border-radius:9px;padding:8px 10px;margin:8px 0;font-size:12.5px}
 .exp{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.intro{border:1.5px solid var(--accent);border-radius:12px;padding:12px 12px 10px;background:#FFF8F6;margin-bottom:6px}
+h1.lead{font-size:17px;font-weight:600;margin:0 0 8px;color:var(--bar)}
+h1.lead label{cursor:text}
+textarea.claim{width:100%;min-height:210px;border:1px solid #C9CED8;border-radius:9px;padding:9px 10px;font-family:inherit;font-size:13.5px;line-height:1.5;resize:vertical;white-space:pre-wrap;background:#fff}
+.go{display:flex;align-items:center;gap:10px;margin-top:8px}
+.btn.big{font-size:15px;padding:9px 24px}
+.kbd{font-size:11.5px;color:var(--muted)}
+.opts{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-top:4px;font-size:12.5px;color:var(--muted)}
+.lk{border:0;background:none;color:var(--accent);cursor:pointer;padding:0;font-size:12.5px;text-decoration:underline}
+.chk.sm{font-size:12.5px;margin:2px 0}
+details summary{cursor:pointer;font-size:12.5px;color:var(--muted);user-select:none}
+details.claude{margin-top:6px}
+details.more{display:inline-block}
+details.more[open]{display:flex;gap:5px;flex-wrap:wrap;align-items:center}
+details.more summary{display:inline-block;border:1.5px solid var(--line);border-radius:100px;padding:2px 10px;font-size:12px}
+.edithead{display:flex;align-items:center;justify-content:space-between;margin:16px 0 8px}
+.edithead h2{margin:0}
+.tabs.seg{margin:0}
+.tabs.seg .tab{padding:2px 12px;font-size:12px}
+details.stylebox{margin-top:18px;border-top:1px solid var(--line);padding-top:10px}
+details.stylebox>summary{font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);font-weight:600}
+.fitline{display:flex;align-items:center;gap:8px;margin:6px 0;font-size:12.5px}
 .status{font-size:12px;color:var(--muted);min-height:16px;margin-top:6px}
 </style>
 </head>
@@ -107,40 +129,56 @@ textarea.out{min-height:150px;white-space:pre-wrap;font-family:inherit;font-size
 </header>
 <main class="app">
   <section class="col left">
-    <div class="tabs" id="tabs">
-      <button class="tab" data-tab="claim">Describe or paste</button>
-      <button class="tab on" data-tab="steps">Steps</button>
-      <button class="tab" data-tab="outline">Outline</button>
+    <div class="intro">
+      <h1 class="lead"><label for="claim">Describe it, or paste the claims</label></h1>
+      <textarea class="claim" id="claim" spellcheck="true" placeholder="First the device reads the sensor. If the reading is too high, it sounds an alarm; otherwise it waits a minute and reads again.&#10;&#10;— or paste one claim, or the whole claim set."></textarea>
+      <div class="go">
+        <button class="btn big" id="claimgo">Make the flowchart</button>
+        <span class="kbd">Ctrl + Enter</span>
+      </div>
+      <div class="status" id="leftstatus" role="status"></div>
+      <div class="opts">
+        <span class="ex">Examples: <button class="lk" data-ex="desc">description</button> · <button class="lk" data-ex="claim">claim</button></span>
+        <label class="chk sm"><input type="checkbox" id="fullwording"> Full claim wording</label>
+      </div>
+      <details class="claude" id="claudedet">
+        <summary>Draft with Claude</summary>
+        <label class="chk sm"><input type="checkbox" id="useclaude"> Use Claude (your Anthropic API key)</label>
+        <div id="claudebox" hidden>
+          <div class="adds" style="margin-top:4px">
+            <input type="password" id="apikey" placeholder="sk-ant-…" autocomplete="off" aria-label="Anthropic API key" style="flex:1;min-width:150px;border:1px solid #C9CED8;border-radius:7px;padding:4px 8px">
+            <label class="chk sm" style="margin:0"><input type="checkbox" id="rememberkey"> Remember</label>
+          </div>
+          <p class="hint">The text goes to Anthropic under your key.</p>
+        </div>
+      </details>
     </div>
-    <div class="status" id="leftstatus"></div>
+
+    <div class="edithead">
+      <h2>Edit the steps</h2>
+      <div class="tabs seg" id="tabs">
+        <button class="tab on" data-tab="steps">List</button>
+        <button class="tab" data-tab="outline">Outline</button>
+      </div>
+    </div>
     <div id="pane-steps">
       <div class="rows" id="rows"></div>
       <div class="adds">
         <button class="btn alt sm" data-add="step">+ Step</button>
         <button class="btn alt sm" data-add="decision">+ Decision</button>
-        <button class="btn alt sm" data-add="branch">+ Branch</button>
-        <button class="btn alt sm" data-add="sub">+ Sub-step</button>
         <button class="btn alt sm" data-add="loop">+ Loop back</button>
-        <button class="btn alt sm" data-add="start">+ Start</button>
-        <button class="btn alt sm" data-add="end">+ End</button>
-        <button class="btn alt sm" data-add="conn">+ Off-page connector</button>
+        <button class="btn alt sm" data-add="sub">+ Sub-step</button>
+        <details class="more"><summary>More</summary>
+          <button class="btn alt sm" data-add="branch">+ Branch</button>
+          <button class="btn alt sm" data-add="start">+ Start</button>
+          <button class="btn alt sm" data-add="end">+ End</button>
+          <button class="btn alt sm" data-add="conn">+ Off-page connector</button>
+        </details>
       </div>
     </div>
     <div id="pane-outline" hidden>
       <textarea class="big" id="outline" spellcheck="false"></textarea>
       <p class="hint">Indent = branch or sub-step &nbsp;·&nbsp; <code>102: text</code> = numeral &nbsp;·&nbsp; ends in <code>?</code> = decision &nbsp;·&nbsp; <code>-&gt; 102</code> = loop &nbsp;·&nbsp; <code>(A)</code> = off-page connector</p>
-    </div>
-    <div id="pane-claim" hidden>
-      <textarea class="big claim" id="claim" placeholder="Describe what it does, or paste one claim or the full claim set."></textarea>
-      <div class="adds"><button class="btn" id="claimgo">Make the flowchart</button></div>
-      <label class="chk" style="margin-top:10px"><input type="checkbox" id="useclaude"> Have Claude draft it (your Anthropic API key)</label>
-      <div id="claudebox" hidden>
-        <div class="adds" style="margin-top:4px">
-          <input type="password" id="apikey" placeholder="sk-ant-…" autocomplete="off" aria-label="Anthropic API key" style="flex:1;min-width:150px;border:1px solid #C9CED8;border-radius:7px;padding:4px 8px">
-          <label class="chk" style="margin:0"><input type="checkbox" id="rememberkey"> Remember</label>
-        </div>
-        <p class="hint">With Claude, the text goes to Anthropic under your key.</p>
-      </div>
     </div>
   </section>
 
@@ -157,6 +195,25 @@ textarea.out{min-height:150px;white-space:pre-wrap;font-family:inherit;font-size
     </div>
     <div class="grid" id="pagelabels"></div>
 
+    <h2>Export</h2>
+    <div id="confirm" class="confirm" hidden></div>
+    <div class="exp">
+      <button class="btn" data-exp="pdf">PDF</button>
+      <button class="btn alt" data-exp="svg">SVG</button>
+      <button class="btn alt" data-exp="png">PNG</button>
+      <select id="dpi" style="border:1px solid #C9CED8;border-radius:7px;padding:4px 6px;font-size:12.5px"><option value="300">300 dpi</option><option value="600">600 dpi</option></select>
+    </div>
+    <div class="status" id="status"></div>
+
+    <h2>USPTO drawing rules</h2>
+    <label class="chk"><input type="checkbox" data-k="compliance"> Compliance mode (37 CFR 1.84)</label>
+    <div id="issues"></div>
+
+    <h2>Detailed Description text</h2>
+    <textarea class="big out" id="desc" readonly></textarea>
+    <div class="adds"><button class="btn alt sm" id="desccopy">Copy text</button><span class="status" id="copied"></span></div>
+    <details class="stylebox" id="stylebox">
+      <summary>Style</summary>
     <h2>Preset</h2>
     <div class="grid">
       <label class="f wide"><select id="preset"></select></label>
@@ -166,10 +223,6 @@ textarea.out{min-height:150px;white-space:pre-wrap;font-family:inherit;font-size
       <button class="btn alt sm" id="presetdel" hidden>Delete preset</button>
     </div>
     <div class="adds" id="presetname" hidden><input id="presetnm" placeholder="Preset name" style="flex:1;border:1px solid #C9CED8;border-radius:7px;padding:3px 7px"><button class="btn sm" id="presetok">Save</button></div>
-
-    <h2>USPTO drawing rules</h2>
-    <label class="chk"><input type="checkbox" data-k="compliance"> Compliance mode (37 CFR 1.84)</label>
-    <div id="issues"></div>
 
     <h2>Page</h2>
     <div class="grid">
@@ -222,25 +275,13 @@ textarea.out{min-height:150px;white-space:pre-wrap;font-family:inherit;font-size
       <label class="chk"><input type="checkbox" id="nofill"> No fill</label>
     </div>
 
-    <h2>Export</h2>
-    <div id="confirm" class="confirm" hidden></div>
-    <div class="exp">
-      <button class="btn" data-exp="pdf">PDF</button>
-      <button class="btn alt" data-exp="svg">SVG</button>
-      <button class="btn alt" data-exp="png">PNG</button>
-      <select id="dpi" style="border:1px solid #C9CED8;border-radius:7px;padding:4px 6px;font-size:12.5px"><option value="300">300 dpi</option><option value="600">600 dpi</option></select>
-    </div>
-    <div class="status" id="status"></div>
-
-    <h2>Detailed Description text</h2>
-    <textarea class="big out" id="desc" readonly></textarea>
-    <div class="adds"><button class="btn alt sm" id="desccopy">Copy text</button><span class="status" id="copied"></span></div>
+    </details>
   </section>
 </main>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@pdf-lib/fontkit@1.1.1/dist/fontkit.umd.min.js"></script>
-<script src="engine.js?v=2"></script>
+<script src="engine.js?v=3"></script>
 <script src="export.js?v=1"></script>
-<script src="app.js?v=3"></script>
+<script src="app.js?v=4"></script>
 </body>
 </html>

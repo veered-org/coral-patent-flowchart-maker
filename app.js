@@ -143,7 +143,7 @@
   function showTab(t) {
     tab = t;
     document.querySelectorAll("#tabs .tab").forEach((b) => b.classList.toggle("on", b.dataset.tab === t));
-    for (const k of ["steps", "outline", "claim"]) $("pane-" + k).hidden = k !== t;
+    for (const k of ["steps", "outline"]) $("pane-" + k).hidden = k !== t;
     if (t === "outline") $("outline").value = C.toOutline(rows());
     if (t === "steps") renderRows(false);
   }
@@ -202,13 +202,14 @@
     figs = figs.filter((f) => f.rows && f.rows.length);
     if (!figs.length) { leftStatus("Nothing to chart in that text."); return; }
     const f0 = fig(); f0.rows = figs[0].rows; f0.pageLabels = [];
-    figs.slice(1).forEach((x, i) => { const nf = newFigure("", x.rows); nf.style = clone(f0.style); state.figures.splice(state.cur + 1 + i, 0, nf); });
+    const fitted = C.fitOneSheet(f0, measure); if (fitted) f0.style = fitted;
+    figs.slice(1).forEach((x, i) => { const nf = newFigure("", x.rows); nf.style = clone(f0.style); const ft = C.fitOneSheet(nf, measure); if (ft) nf.style = ft; state.figures.splice(state.cur + 1 + i, 0, nf); });
     sel = -1; commit(); showTab("steps"); renderAll();
     leftStatus(note + (figs.length > 1 ? " " + figs.length + " figures: the new ones need a figure number." : ""));
   }
   const list = (a) => (a.length < 2 ? a.join("") : a.slice(0, -1).join(", ") + " and " + a[a.length - 1]);
   function makeByRule(text) {
-    const r = C.textToFigures(text);
+    const r = C.textToFigures(text, { short: !$("fullwording").checked });
     if (r.kind === "claims") {
       const folded = r.figures.reduce((n, f) => n + (f.folded || 0), 0);
       applyFigures(r.figures, "Charted claim" + (r.figures.length > 1 ? "s " : " ") + list(r.figures.map((f) => String(f.claim))) + (folded ? ", with " + folded + " dependent claim" + (folded > 1 ? "s" : "") + " folded in." : "."));
@@ -252,6 +253,17 @@
       leftStatus("Claude could not draft it: " + m);
     } finally { drafting = null; $("claimgo").disabled = false; }
   }
+  const EXAMPLES = {
+    desc: "First the thermostat reads the room temperature. If the temperature is below the set point, it turns the heater on; otherwise it turns the heater off. Then it waits one minute and goes back to reading the room temperature.",
+    claim: "1. A method of brewing tea, the method comprising:\n(a) heating water in a kettle;\n(b) determining whether the water has reached a set temperature;\n(c) in response to determining that the water has reached the set temperature, steeping tea leaves in the water for a steeping time, wherein the tea leaves are held in a removable basket;\n(d) pouring the tea into a cup; and\n(e) repeating steps (a) to (d) for each additional cup.\n2. The method of claim 1, wherein the set temperature is between 80 and 95 degrees Celsius.\n3. The method of claim 1, further comprising: displaying the remaining steeping time.",
+  };
+  const SRC = "coral.source";
+  try { $("claim").value = localStorage.getItem(SRC) || ""; } catch (e) { /* storage unavailable */ }
+  $("claim").addEventListener("input", () => { try { localStorage.setItem(SRC, $("claim").value); } catch (e) { /* ignore */ } });
+  $("claim").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); $("claimgo").click(); } });
+  document.querySelectorAll("[data-ex]").forEach((b) => b.addEventListener("click", () => {
+    $("claim").value = EXAMPLES[b.dataset.ex]; $("claim").dispatchEvent(new Event("input")); $("claimgo").click();
+  }));
   $("claimgo").addEventListener("click", () => {
     const text = $("claim").value.trim();
     if (!text) { leftStatus("Type a description or paste claims first."); return; }
@@ -355,7 +367,8 @@
     $("sheets").innerHTML = L.pages.map((p) => '<div class="sheet">' + C.toSVG(p, L.style, { guides: true }) + "</div>").join("");
     const viol = L.issues.filter((i) => i.sev === "violation"), notes = L.issues.filter((i) => i.sev !== "violation");
     const line = (i) => '<div class="iss' + (i.sev === "violation" ? "" : " note") + '"' + (i.ri != null && i.ri >= 0 ? ' data-ri="' + i.ri + '"' : "") + ">" + esc(i.msg) + "</div>";
-    $("issues").innerHTML = (L.style.compliance ? (viol.length ? "" : '<div class="okline">✓ No violations found.</div>') : '<div class="iss note">Compliance mode is off.</div>') + viol.map(line).join("") + notes.map(line).join("");
+    const fit = L.pages.length > 1 ? '<div class="fitline"><span>' + L.pages.length + ' sheets</span><button class="btn alt sm" id="fitbtn">Fit on one sheet</button></div>' : "";
+    $("issues").innerHTML = fit + (L.style.compliance ? (viol.length ? "" : '<div class="okline">✓ No violations found.</div>') : '<div class="iss note">Compliance mode is off.</div>') + viol.map(line).join("") + notes.map(line).join("");
     // per-sheet labels when the chart runs over several sheets
     const pl = $("pagelabels"), f = fig();
     if (L.pages.length > 1) {
@@ -375,7 +388,13 @@
     const el = rowsBox.querySelector('.r[data-i="' + ri + '"]'); if (el) el.scrollIntoView({ block: "nearest" });
   }
   $("sheets").addEventListener("click", (e) => { const t = e.target.closest("[data-ri]"); if (t) selectRow(+t.dataset.ri); });
-  $("issues").addEventListener("click", (e) => { const t = e.target.closest("[data-ri]"); if (t) selectRow(+t.dataset.ri); });
+  $("issues").addEventListener("click", (e) => {
+    if (e.target.id === "fitbtn") {
+      const st = C.fitOneSheet(fig(), measure);
+      if (st) { fig().style = st; fig().pageLabels = []; commit(); syncControls(); renderPreview(); status(""); }
+      else { e.target.disabled = true; e.target.textContent = "Too long for one sheet"; }
+      return;
+    } const t = e.target.closest("[data-ri]"); if (t) selectRow(+t.dataset.ri); });
 
   function renderAll(focusSel) {
     if (state.cur >= state.figures.length) state.cur = state.figures.length - 1;
@@ -470,6 +489,7 @@
 
   // ---------------------------------------------------------------- start
   commit(); renderAll();
+  if (!$("claim").value) $("claim").focus();
   // text is measured with the embedded fonts, so lay out again once they have loaded
   if (document.fonts && document.fonts.load) {
     Promise.all(Object.keys(C.FONTS).map((k) => document.fonts.load("20px '" + C.FONTS[k].family + "'").catch(() => null))).then(() => renderPreview());

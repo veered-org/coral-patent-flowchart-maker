@@ -1,6 +1,6 @@
 # Patent Flowchart Maker (Coral): steps in, filing-ready flowchart out
 
-Coral turns a description, a claim, or a full claim set into a decision flowchart. Describe what the thing does, paste claims, type the steps, or write an indented outline; the tool places every shape and arrow, checks the sheet against the USPTO drawing rules (37 CFR 1.84), and exports a PDF with embedded fonts, an SVG, or a PNG at 300 or 600 dpi. A second preset makes the same chart for a website or a presentation.
+Coral turns a description, a claim, or a full claim set into a decision flowchart. Describe what the thing does or paste claims in the box at the top (Ctrl+Enter), then adjust the steps, or write an indented outline; the tool places every shape and arrow, checks the sheet against the USPTO drawing rules (37 CFR 1.84), and exports a PDF with embedded fonts, an SVG, or a PNG at 300 or 600 dpi. A second preset makes the same chart for a website or a presentation.
 
 ![A sign-in flowchart as a USPTO formal drawing and in the website preset](docs/screenshot.png)
 
@@ -9,7 +9,10 @@ Coral turns a description, a claim, or a full claim set into a decision flowchar
 ## What it does
 - **Describe or paste:** type what the process does in plain sentences, or paste one claim or the whole claim set, and press Make the flowchart.
   - A description becomes steps; "If …, …; otherwise, …" becomes a decision with both branches; "go back to …" becomes a loop.
-  - A claim set gives one figure per independent method claim. Dependent claims are folded in: "further comprising" adds steps, and a "wherein" clause becomes a sub-step of the step it limits. "Determining whether …" becomes a diamond, and "in response to determining that …" becomes its Yes or No branch. Claim wording is kept, and no numerals are added.
+  - A claim set gives one figure per independent method claim. Dependent claims are folded in: "further comprising" adds steps, and a "wherein" clause becomes a sub-step of the step it limits. "Determining whether …" becomes a diamond, and "in response to determining that …" becomes its Yes or No branch. "Repeating steps (c) to (g) for multiple sample locations" becomes "More sample locations?" with a loop back to step (c) ("until …" loops on No). No numerals are added.
+  - Long claim steps become short box labels in the claim's own words ("using …," lead-ins, trailing "the wave being …" clauses and end-of-step prepositional phrases are dropped; "(PV-PRC)" replaces its spelled-out form). Tick **Full claim wording** to keep every word.
+  - The chart is fitted to one sheet when wider boxes and tighter rows allow it; a **Fit on one sheet** button appears whenever a chart runs over.
+  - Descriptions are tidied as well: "It turns the heater on" becomes "Turn the heater on", and "If the charge fails" becomes "Does the charge fail?".
   - Optionally, Claude drafts the chart instead (tick the box and paste your own Anthropic API key). The text then goes to Anthropic under your key; otherwise nothing leaves the browser.
 - **Steps:** add, edit, delete, reorder (buttons or drag), indent and outdent. Each step has its own shape: rectangle, rounded rectangle, diamond, oval, terminator, parallelogram, hexagon, circle.
 - **Decisions:** a step ending in `?` becomes a diamond; the rows indented under it are its branches (Yes / No, or any number of outcomes).

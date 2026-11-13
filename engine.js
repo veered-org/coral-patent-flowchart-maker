@@ -153,6 +153,7 @@
     const segs = /;/.test(t) ? t.replace(/\s*\n\s*/g, " ").split(";") : t.split(/\n+/);
     const rows = [];
     for (const seg of segs) {
+      const lm = seg.match(/^\s*(?:(?:and\/or|and|or)\b[\s,]*)?\(?([a-z]{1,2}|[ivx]{1,5}|\d{1,2})[).]\s+/i);
       let s = cleanClause(seg);
       if (!s) continue;
       if (!rows.length && /^(?:the|a|an)\s+(?:method|process)\b[^,]*$/i.test(s)) continue;
@@ -161,7 +162,7 @@
       parts.forEach((p, k) => {
         const sub = /^where(?:in|by)\b/i.test(p) && rows.length > 0;
         rows.push({ level: sub ? 1 : 0, text: sub ? p : upFirst(p), num: "", shape: "" });
-        if (k === 0 && !sub) rows[rows.length - 1].level = 0;
+        if (k === 0 && !sub) { rows[rows.length - 1].level = 0; if (lm) rows[rows.length - 1]._lab = lm[1].toLowerCase(); }
       });
     }
     return rows;
@@ -213,7 +214,7 @@
         // a diamond cannot hold "wherein" sub-steps: the step keeps them and a
         // short diamond follows it
         out.push(Object.assign({}, r)); dec = -1;
-        pending = { level: 0, text: upFirst(dm[1]) + "?", num: "", shape: "" };
+        pending = { level: 0, text: askForm(dm[1]), num: "", shape: "" };
         continue;
       }
       out.push(Object.assign({}, r, dm ? { shape: "diamond" } : {}));
@@ -224,9 +225,79 @@
     return out;
   }
 
+  // "repeating steps (c) to (g) for multiple sample locations" becomes a decision whose
+  // branch loops back to step (c). The steps are found by their claim letters (a), (b), …
+  function claimLoops(rows) {
+    const tops = rows.filter((r) => !r.level);
+    const RE = /^(?:repeating|reiterating|iterating|performing\s+again)\s+(?:the\s+)?(?:steps?|acts?|operations?)\s+(?:of\s+)?\(?([a-z]{1,2}|[ivx]{1,5}|\d{1,2})\)?(?:\s*(?:,|to|through|thru|-|–|and)\s*\(?(?:[a-z]{1,2}|[ivx]{1,5}|\d{1,2})\)?)*\s*,?\s*(.*)$/i;
+    const out = [];
+    for (const r of rows) {
+      const m = !r.level && String(r.text).match(RE);
+      let target = null;
+      if (m) {
+        const lab = m[1].toLowerCase();
+        target = tops.find((t) => t._lab === lab && t !== r) || null;
+        if (!target && /^[a-z]$/.test(lab)) { const c = tops[lab.charCodeAt(0) - 97]; if (c && c !== r) target = c; }
+      }
+      if (!target) { out.push(r); continue; }
+      const rest = m[2].split(",")[0].trim();
+      let q = "Repeat?", loopOn = "Yes", mm;
+      if ((mm = rest.match(/^until\s+(.+)$/i))) { q = askForm(mm[1]); loopOn = "No"; }
+      else if ((mm = rest.match(/^(?:for|at|on|in)\s+(?:each\s+of\s+|all\s+)?(?:each|every|all|multiple|several|a\s+plurality\s+of|plural|additional|other|further|more|one\s+or\s+more|remaining|subsequent)\s+(?:(?:other|additional|further|remaining)\s+)?(.+?)(?:\s+(?:in|of|within|across|on|along|at|throughout|over)\b.*)?$/i))) q = "More " + plural(mm[1]) + "?";
+      else if ((mm = rest.match(/\b(\w+)\s+times\b/i))) { q = "Repeated " + mm[1] + " times?"; loopOn = "No"; }
+      const back = "-> " + (target.num || target.text);
+      out.push({ level: 0, text: q, num: "", shape: "" });
+      if (loopOn === "Yes") out.push({ level: 1, text: "Yes: " + back, num: "", shape: "" }, { level: 1, text: "No:", num: "", shape: "" });
+      else out.push({ level: 1, text: "Yes:", num: "", shape: "" }, { level: 1, text: "No: " + back, num: "", shape: "" });
+    }
+    return out;
+  }
+
+  // A long claim step -> a box label of about a dozen words, in the claim's own words:
+  // drops "using X, …" lead-ins, trailing "the wave being …" clauses and adverbs, writes an
+  // acronym in place of its spelled-out form, then trims prepositional phrases from the
+  // end of the longest part until the label is short enough.
+  const PREPS = new Set("of in at for through from between on into within across along over under by with based using via among per during after before throughout".split(" "));
+  const ARTS = new Set(["a", "an", "the", "said", "each", "and", "or", "at"]);
+  function shortLabel(text, cap) {
+    cap = cap || 12;
+    let t = String(text || "").replace(/\s+/g, " ").trim();
+    const words = (x) => x.split(/\s+/).filter(Boolean).length;
+    if (words(t) <= cap) return t;
+    const orig = t;
+    t = t.replace(/,\s+(?:the|each|said|a|an)\s+(?:[\w%()\/-]+\s+){0,8}?(?:being|having been|is|are|was|were|comprising|including|\w+ing)\b.*$/i, "");
+    t = t.replace(/^(?:using|with|by|via|based on|by means of|employing)\s+[^,]+(?:,[^,]+)*?,\s+(?=\w+ing\b)/i, "");
+    t = t.replace(/^using\s+(?:the|a|an|said)\s+(?:[\w-]+\s+){0,3}?(?:system|device|apparatus|unit|module|processor|sensor|tool|machine|antenna|controller|computer|circuit|instrument|probe|camera|scanner|detector)\s+(?=\w+ing\b)/i, "");
+    t = t.replace(/^\w+ly\s+(?=\w+ing\b)/i, "");
+    t = t.replace(/(\b(?:a|an|the|said)\s+)((?:[^\s(]+\s+){1,7}?)\(([A-Z0-9][A-Z0-9-]{1,9})\)/g, "$1$3");
+    t = t.replace(/\b(\w+ing)\b([^,]*?)\s+and\s+\1\s+/gi, "$1$2 and ");
+    t = t.replace(/\s*,\s*$/, "").trim();
+    // protect "between A and B" so it is cut as one phrase
+    t = t.replace(/\bbetween\s+([^,]+?)\s+and\s+/gi, "between $1 \u0001 ");
+    let parts = t.split(/\s+and\s+(?=(?:a|an|the|said)\s|\w+ing\b)/i).map((x) => x.split(" "));
+    const total = () => parts.reduce((n, p) => n + p.filter((w) => w !== "\u0001").length, 0);
+    let guard = 0;
+    while (total() > cap && guard++ < 40) {
+      let best = -1, bestAt = -1;
+      parts.forEach((p, k) => {
+        for (let i = p.length - 1; i >= 3; i--) {
+          const w = p[i].toLowerCase().replace(/[^a-z]/g, ""), prev = (p[i - 1] || "").toLowerCase();
+          const prep = PREPS.has(w) || (w === "to" && !VERBS.has((p[i + 1] || "").toLowerCase()));
+          const ger = /ing$/.test(w) && w.length > 5 && !ARTS.has(prev) && !/ing$/.test(prev) && !/^(?:housing|bearing|coating|opening|building|ceiling|clothing|packaging|wiring|padding|setting|string|spring|lining|fitting|casing|ring|thing|during|including)$/.test(w);
+          if (prep || ger) { if (best < 0 || p.length > parts[best].length) { best = k; bestAt = i; } break; }
+        }
+      });
+      if (best < 0) break;
+      parts[best] = parts[best].slice(0, bestAt);
+      while (parts[best].length > 2 && /^(?:based|according|due|relative|corresponding|and|or|the|a|an|said)$/i.test(parts[best][parts[best].length - 1])) parts[best].pop();
+    }
+    t = parts.map((p) => p.join(" ")).join(" and ").replace(/\s*\u0001\s*/g, " and ").replace(/[\s,;:]+$/, "").trim();
+    return t ? upFirst(t) : orig;
+  }
+
   // A claim set -> one figure per independent method claim. Dependent claims are folded
   // in: "further comprising" adds steps, "wherein" becomes a sub-step of the step it is about.
-  function claimsToFigures(text) {
+  function claimsToFigures(text, opt) {
     const claims = splitClaims(text), byN = {};
     claims.forEach((c) => { byN[c.n] = c; });
     const rootOf = (c) => { let g = 0; while (c.parent != null && byN[c.parent] && g++ < 60) c = byN[c.parent]; return c; };
@@ -255,8 +326,57 @@
         let at = best + 1; while (at < rows.length && rows[at].level > 0) at++;
         rows.splice(at, 0, { level: 1, text: sub, num: "", shape: "" }); owner.splice(at, 0, d.n);
       }
-      return { claim: h.n, rows: claimDecisions(rows), folded };
+      let out = claimDecisions(rows);
+      if (!(opt && opt.short === false)) out.forEach((r) => { if (!r.level && !/:$/.test(r.text) && !RE_GOTO.test(r.text) && !/\?$/.test(r.text)) r.text = shortLabel(r.text); });
+      out = claimLoops(out);
+      out.forEach((r) => { delete r._lab; });
+      return { claim: h.n, rows: out, folded };
     });
+  }
+
+  // "The water has reached the set temperature" -> "Has the water reached the set temperature?"
+  function askForm(t) {
+    t = String(t).trim().replace(/\?\s*$/, "");
+    const m = t.match(/^((?:the|a|an|this|that|each|any|it|they|there)\b.*?)\s+(is|are|was|were|has|have|can|will|does|do)\s+(.+)$/i);
+    const subj = (x) => (/^(?:it|they|there)$/i.test(x) ? x.toLowerCase() : x.charAt(0).toLowerCase() + x.slice(1));
+    if (m && /^ha(?:s|ve)$/i.test(m[2]) && !/^(?:\w+(?:ed|en)|been|done|gone|made|sent|met|run|set|got|found|held|kept|left|lost|paid|read|built|bought|caught|taught|won)\b/i.test(m[3]) && m[1].split(/\s+/).length <= 6)
+      return (/^has$/i.test(m[2]) ? "Does " : "Do ") + subj(m[1]) + " have " + m[3] + "?";
+    if (m && m[1].split(/\s+/).length <= 6) return upFirst(m[2].toLowerCase()) + " " + (/^(?:it|they|there)$/i.test(m[1]) ? m[1].toLowerCase() : m[1].charAt(0).toLowerCase() + m[1].slice(1)) + " " + m[3] + "?";
+    const w = t.split(/\s+/);
+    if (/^(?:the|a|an|this|that|each|any|it)$/i.test(w[0])) for (let i = /^it$/i.test(w[0]) ? 1 : 2; i <= Math.min(4, w.length - 1); i++) {
+      const bv = baseVerb(w[i]);
+      if (bv && (VERBS.has(bv) || MORE_VERBS.has(bv))) return "Does " + subj(w.slice(0, i).join(" ")) + " " + bv + (w.length > i + 1 ? " " + w.slice(i + 1).join(" ") : "") + "?";
+    }
+    return upFirst(t) + "?";
+  }
+  const plural = (n) => (/s$/i.test(n) ? n : /[^aeiou]y$/i.test(n) ? n.slice(0, -1) + "ies" : /(?:x|ch|sh|z)$/i.test(n) ? n + "es" : n + "s");
+  // "It turns the heater on" / "The thermostat reads the temperature" -> "Turn the heater on" / "Read the temperature"
+  const MORE_VERBS = new Set("turn wait go sound raise lower switch keep call pass give take make ask tell use try leave hold push pull press release pump flow warn beep ring lift drop pour steep brew boil stir add show print email text log ping sleep pause resume reboot restart refresh notify fail succeed exceed exist contain equal remain need want work".split(" "));
+  function baseVerb(w) {
+    const l = w.toLowerCase();
+    if (/[^aeiou]ies$/.test(l)) return l.slice(0, -3) + "y";
+    if (/(?:sh|ch|x|ss|zz|o)es$/.test(l)) return l.slice(0, -2);
+    if (/[^s]s$/.test(l)) return l.slice(0, -1);
+    return null;
+  }
+  function imperative(t) {
+    const r = imperative0(t);
+    return RE_GOTO.test(r) || RE_TERM.test(r) ? t : r;
+  }
+  function imperative0(t) {
+    const w = String(t).split(/\s+/);
+    const pron = /^(?:it|they|he|she|we|you|i)$/i.test(w[0]);
+    if (w.length > 1) {
+      const b0 = baseVerb(w[0]);
+      if (b0 && (VERBS.has(b0) || MORE_VERBS.has(b0)) && !/^(?:is|are|was|were|of|and)$/i.test(w[1])) return upFirst(b0 + " " + w.slice(1).join(" "));
+      if (pron && !baseVerb(w[1]) && !/^(?:is|are|was|were|has|have|can|will|must|should|may)$/i.test(w[1])) return upFirst(w.slice(1).join(" "));
+    }
+    for (let i = pron ? 1 : 2; i <= Math.min(pron ? 1 : 4, w.length - 1); i++) {
+      if (!pron && !/^(?:the|a|an|this|our|my|your|its)$/i.test(w[0])) break;
+      const b = baseVerb(w[i] || "");
+      if (b && (pron || VERBS.has(b) || MORE_VERBS.has(b))) return upFirst(b + (w.slice(i + 1).length ? " " + w.slice(i + 1).join(" ") : ""));
+    }
+    return t;
   }
 
   // A plain description ("First the user signs in. If the password is wrong, ...") -> rows.
@@ -270,10 +390,10 @@
     const tidy = (s) => { s = s.replace(BUL, ""); let g = 0; while (LEAD.test(s) && g++ < 4) s = s.replace(LEAD, ""); return s.replace(/[\s.;:,!]+$/, "").trim(); };
     const rows = [], row = (level, text) => rows.push({ level, text, num: "", shape: "" });
     const steps = (level, s) => {
-      for (let p of String(s).split(/\s*[;,]?\s+(?:and\s+)?then,?\s+|;\s+/i)) {
+      for (let p of String(s).split(/\s*[;,]?\s+(?:and\s+)?then,?\s+|;\s+|,?\s+and\s+(?=(?:go(?:es)?|return(?:s)?|loops?|jumps?)\s+back\b|(?:repeat|start(?:s)?\s+over)\b)/i)) {
         p = tidy(p); if (!p) continue;
         const g = p.match(/^(?:go(?:es)?|return(?:s)?|loops?|jumps?)\s+back\s+to\s+(?:the\s+)?(.+)$/i) || p.match(/^(?:repeat|start(?:s)? over)\s*(?:from\s+)?(?:the\s+)?(.*)$/i);
-        if (g) rows.push({ level, text: "-> ", num: "", shape: "", _to: g[1].trim() }); else row(level, upFirst(p));
+        if (g) rows.push({ level, text: "-> ", num: "", shape: "", _to: g[1].trim() }); else row(level, imperative(upFirst(p)));
       }
     };
     let lastDec = -1;
@@ -284,7 +404,7 @@
       const m = s.match(/^(if|in case|unless)\s+(.+?),\s*(?:then\s+)?(.+)$/i);
       if (m) {
         const parts = m[3].split(/\s*[;,.]\s*(?:otherwise|else|if not),?\s+/i), flip = /^unless$/i.test(m[1]);
-        row(0, upFirst(m[2]) + "?"); row(1, flip ? "No:" : "Yes:"); steps(2, parts[0]);
+        row(0, askForm(m[2])); row(1, flip ? "No:" : "Yes:"); steps(2, parts[0]);
         if (parts[1]) { row(1, flip ? "Yes:" : "No:"); steps(2, parts.slice(1).join(", ")); lastDec = -1; } else lastDec = flip ? -1 : rows.length;
         continue;
       }
@@ -314,7 +434,7 @@
     if (!t) return { kind: "empty", figures: [] };
     const claimy = /^\s*(?:claim\s+)?\d{1,3}\s*[.)]\s+(?:An?|The|One)\b/im.test(t)
       || (/\b(?:compris(?:ing|es)|consist(?:ing|s) of)\b/i.test(t) && /;/.test(t)) || /\b(?:of|in|to)\s+claim\s+\d/i.test(t);
-    if (claimy) return { kind: "claims", figures: claimsToFigures(t).filter((f) => f.rows.length) };
+    if (claimy) return { kind: "claims", figures: claimsToFigures(t, opt).filter((f) => f.rows.length) };
     const rows = parseDescription(t, opt);
     return { kind: "description", figures: rows.length ? [{ rows }] : [] };
   }
@@ -837,6 +957,22 @@
     return s + "</svg>";
   }
 
+  // Wider boxes and tighter rows until the chart fits one sheet. Returns the style that
+  // fits (keeping the drawing rules), or null when nothing does.
+  function fitOneSheet(fig, measure) {
+    const base = layout(fig, measure);
+    if (base.pages.length < 2) return null;
+    const st = normStyle(fig.style), nv = (L) => L.issues.filter((i) => i.sev === "violation").length, v0 = nv(base);
+    const tries = [];
+    for (const bw of [st.boxWidth, 8, 9, 10, 11]) for (const gy of [Math.min(st.gapY, 20), 16, 13]) if (bw >= st.boxWidth) tries.push({ boxWidth: bw, gapY: gy });
+    tries.push({ boxWidth: Math.max(st.boxWidth, 10), gapY: 12, padding: Math.min(st.padding, 4) });
+    for (const t of tries) {
+      const style = Object.assign({}, fig.style, t), L = layout(Object.assign({}, fig, { style }), measure);
+      if (L.pages.length === 1 && nv(L) <= v0) return style;
+    }
+    return null;
+  }
+
   // ------------------------------------------------------------------ description text
   const VERBS = new Set(("receive send transmit determine store display generate compute calculate compare select identify detect obtain provide apply update create load save read write check verify validate encrypt decrypt output input process parse render request respond return retrieve fetch measure monitor record log notify alert prompt authenticate authorize connect disconnect initialize start stop begin end set reset increment decrement add remove delete insert sort filter map merge split encode decode compress scan capture convert transform translate assign allocate schedule execute run perform launch open close lock unlock show hide wait repeat heat cool mix attach place position move rotate cut form fill seal deposit coat dry cure wash rinse administer collect acquire sense analyze classify extract combine build train predict rank score route forward publish subscribe queue present enable disable activate deactivate adjust control drive cause instruct query search match look find get put issue submit confirm reject accept deny grant revoke register sign upload download print charge pay bill order ship deliver").split(" "));
   function third(v) { return /(s|sh|ch|x|z|o)$/.test(v) ? v + "es" : /[^aeiou]y$/.test(v) ? v.slice(0, -1) + "ies" : v + "s"; }
@@ -881,5 +1017,5 @@
   }
 
   return { PT_CM, PAPERS, USPTO_MARGINS, MIN_LETTER_CM, FONTS, SHAPES, HEADS, PRESETS, minFontSize, usptoStyle, webStyle, normStyle,
-    parseOutline, toOutline, parseClaim, splitClaims, claimsToFigures, parseDescription, textToFigures, rowKind, isDecisionRow, parentOf, buildTree, layout, toSVG, pathD, describe };
+    parseOutline, toOutline, parseClaim, shortLabel, splitClaims, claimsToFigures, parseDescription, textToFigures, rowKind, isDecisionRow, parentOf, buildTree, layout, fitOneSheet, toSVG, pathD, describe };
 });
