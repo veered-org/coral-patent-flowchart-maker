@@ -49,7 +49,7 @@
       borderWeight: 1.25, arrowWeight: 1.25,
       line: "elbow", dash: "solid", head: "filled", headSize: 8,
       padding: 6, boxWidth: 6.5, gapY: 26, gapX: 26,
-      numeralPos: "right", caption: "FIG.",
+      numeralPos: "right", caption: "FIG.", wrap: "auto",
       stroke: "#000000", fill: "none", textColor: "#000000",
     };
   }
@@ -78,6 +78,7 @@
     if (!SHAPES[o.decisionShape]) o.decisionShape = "diamond";
     if (!SHAPES[o.termShape]) o.termShape = "stadium";
     if (!HEADS[o.head]) o.head = "filled";
+    o.wrap = o.wrap === "off" || o.wrap === false ? "off" : "auto";
     if (o.compliance) {
       if (!PAPERS[o.paper].uspto) o.paper = "letter";
       o.stroke = "#000000"; o.fill = "none"; o.textColor = "#000000";
@@ -295,6 +296,68 @@
     return t ? upFirst(t) : orig;
   }
 
+  // "calculating" -> "calculate", "transmitting" -> "transmit", "generating" -> "generate"
+  function gerundBase(w) {
+    const l = String(w).toLowerCase();
+    if (!/ing$/.test(l) || l.length < 6) return null;
+    const b = l.slice(0, -3), known = (x) => VERBS.has(x) || MORE_VERBS.has(x);
+    if (known(b)) return b;
+    if (known(b + "e")) return b + "e";
+    if (/([bcdfgklmnprstvz])\1$/.test(b) && !/(?:ll|ss|ff|zz)$/.test(b)) return b.slice(0, -1);
+    if (/(?:at|iz|ys|iv|ur|uc|ag|rg|lv|rv|ov|ac|bl|pl|tl|dl|gl|ut|id|ud|in|ar|or|os|ag|om|um)$/.test(b) && !/(?:ain|ein|oin|ear|oor)$/.test(b)) return b + "e";
+    return b;
+  }
+  // A claim step -> a short command of about seven words ("Calculate transmission angle and
+  // reference reflection coefficient"), the way flowchart boxes are usually written.
+  const KEEP_OF = /^(?:change|changes|amount|number|level|degree|rate|percent|percentage|value|values|ratio|portion|part|type|set|series|pair|plurality|map|plot)$/i;
+  function commandLabel(text, cap) {
+    cap = cap || 7;
+    let t = String(text || "").replace(/\s+/g, " ").trim();
+    if (!t) return t;
+    const orig = t;
+    // "a map of X, the map indicating Y" -> "a map indicating Y"
+    t = t.replace(/^(.*?\b(\w{3,}))\b([^,]*),\s+(?:the|said)\s+(?:[\w-]+\s+){0,4}?\2\s+(indicating|showing|representing|depicting|identifying|illustrating)\s+(.+)$/i, "$1 $4 $5");
+    t = t.replace(/,\s+(?:the|each|said|a|an)\s+(?:[\w%()\/-]+\s+){0,8}?(?:being|having been|is|are|was|were|comprising|including|\w+ing)\b.*$/i, "");
+    t = t.replace(/^(?:using|with|by|via|based on|by means of|employing)\s+[^,]+(?:,[^,]+)*?,\s+(?=\w+ing\b)/i, "");
+    t = t.replace(/^using\s+(?:the|a|an|said)\s+(?:[\w-]+\s+){0,3}?(?:system|device|apparatus|unit|module|processor|sensor|tool|machine|antenna|controller|computer|circuit|instrument|probe|camera|scanner|detector)\s+(?=\w+ing\b)/i, "");
+    t = t.replace(/^\w+ly\s+(?=\w+ing\b)/i, "");
+    t = t.replace(/(\b(?:a|an|the|said)\s+)((?:[^\s(]+\s+){1,7}?)\(([A-Z0-9][A-Z0-9-]{1,9})\)/g, "$1$3");
+    t = t.replace(/\b(\w+ing)\b([^,]*?)\s+and\s+\1\s+/gi, "$1$2 and ");
+    t = t.replace(/\b(\w+ing)\s+(?:from|in|into|on|onto|with)\s+(?:the|said)\s+[\w-]+\s+(?=(?:a|an|the|said)\b)/gi, "$1 ");
+    // "transmitting and receiving a wave to obtain a measurement" -> "obtain a measurement"
+    const pm = t.match(/^[^,]*?\s+to\s+(obtain|determine|produce|generate|form|create|acquire|measure|compute|calculate|identify|detect|provide|establish)\s+(.+)$/i);
+    if (pm) t = pm[1] + " " + pm[2];
+    t = t.replace(/\s*,\s*$/, "").trim();
+    // commands, not gerunds; no articles
+    t = t.split(" ").map((w, i, a) => { const g = (i === 0 || /^(?:and|or|then)$/i.test(a[i - 1])) && gerundBase(w); return g || w; }).join(" ");
+    t = t.replace(/\bat least one\s+/gi, "").replace(/\b(?:a|an|the|said)\s+/gi, "").replace(/\s+/g, " ").trim();
+    t = t.replace(/\bbetween\s+([^,]+?)\s+and\s+/gi, "between $1 \u0001 ");
+    let parts = t.split(/\s+and\s+(?=\S)/i).map((x) => x.split(" "));
+    // keep "transmit and receive" together: a part of one word joins the next
+    for (let k = 0; k < parts.length - 1; k++) if (parts[k].length === 1) { parts[k + 1] = parts[k].concat(["and"], parts[k + 1]); parts.splice(k, 1); k--; }
+    const total = () => parts.reduce((n, p) => n + p.filter((w) => w !== "\u0001" && w.toLowerCase() !== "and").length, 0);
+    let guard = 0;
+    while (total() > cap && guard++ < 40) {
+      let best = -1, bestAt = -1;
+      parts.forEach((p, k) => {
+        for (let i = p.length - 1; i >= 2; i--) {
+          const w = p[i].toLowerCase().replace(/[^a-z]/g, ""), prev = (p[i - 1] || "");
+          if (KEEP_OF.test(prev) && /^(?:of|in)$/.test(w)) continue;
+          const prep = PREPS.has(w) || (w === "to" && !VERBS.has((p[i + 1] || "").toLowerCase()));
+          const ger = /ing$/.test(w) && w.length > 5 && !/^(?:and|or)$/i.test(prev) && !/^(?:housing|bearing|coating|opening|building|ceiling|clothing|packaging|wiring|padding|setting|string|spring|lining|fitting|casing|thing|during|including)$/.test(w);
+          if (prep || ger) { if (best < 0 || p.length > parts[best].length) { best = k; bestAt = i; } break; }
+        }
+      });
+      if (best < 0) break;
+      const removed = parts[best].length - bestAt;
+      if (total() <= cap + 2 && removed * 2 > total()) break;
+      parts[best] = parts[best].slice(0, bestAt);
+      while (parts[best].length > 2 && (/^(?:based|according|due|relative|corresponding|and|or|to)$/i.test(parts[best][parts[best].length - 1]) || PREPS.has(parts[best][parts[best].length - 1].toLowerCase()))) parts[best].pop();
+    }
+    t = parts.map((p) => p.join(" ")).join(" and ").replace(/\s*\u0001\s*/g, " and ").replace(/[\s,;:]+$/, "").trim();
+    return t ? upFirst(t) : orig;
+  }
+
   // A claim set -> one figure per independent method claim. Dependent claims are folded
   // in: "further comprising" adds steps, "wherein" becomes a sub-step of the step it is about.
   function claimsToFigures(text, opt) {
@@ -327,7 +390,11 @@
         rows.splice(at, 0, { level: 1, text: sub, num: "", shape: "" }); owner.splice(at, 0, d.n);
       }
       let out = claimDecisions(rows);
-      if (!(opt && opt.short === false)) out.forEach((r) => { if (!r.level && !/:$/.test(r.text) && !RE_GOTO.test(r.text) && !/\?$/.test(r.text)) r.text = shortLabel(r.text); });
+      if (!(opt && opt.short === false)) out.forEach((r, i) => {
+        const k = rowKind(out, i), dm = r.text.match(/^(?:determin(?:ing|e)|check(?:ing)?|verify(?:ing)?|detect(?:ing)?|decid(?:ing|e)|evaluat(?:ing|e)|test(?:ing)?)\s+(?:whether|if)\s+(.+)$/i);
+        if (k === "decision" && dm) { r.text = askForm(dm[1]); r.shape = ""; return; }
+        if ((k === "step" || k === "sub") && !/^where(?:in|by)\b/i.test(r.text) && !/^(?:repeat|reiterat|iterat|performing\s+again)/i.test(r.text)) r.text = commandLabel(r.text);
+      });
       out = claimLoops(out);
       out.forEach((r) => { delete r._lab; });
       return { claim: h.n, rows: out, folded };
@@ -551,6 +618,22 @@
 
   // ------------------------------------------------------------------ layout
   function layout(fig, measure) {
+    const L = layout1(fig, measure);
+    // columns need narrower boxes on a letter sheet: try them before giving up on columns
+    if (!L.columns && !fig._narrow && L.style.wrap !== "off") {
+      const real = L.tree.filter((it) => it.kind !== "goto" && it.kind !== "conn").length;
+      if (real >= 6 && !L.tree.some((it) => it.kind === "conn")) {
+        const nv = (x) => x.issues.filter((i) => i.sev === "violation").length;
+        for (const bw of [5.5, 5, 4.5]) {
+          if (bw >= L.style.boxWidth) continue;
+          const N = layout1(Object.assign({}, fig, { _narrow: true, style: Object.assign({}, fig.style, { boxWidth: bw }) }), measure);
+          if (N.columns && N.pages.length === 1 && nv(N) <= nv(L)) return N;
+        }
+      }
+    }
+    return L;
+  }
+  function layout1(fig, measure) {
     const S = normStyle(fig.style), fontDef = FONTS[S.font];
     const m = (t, size) => measure(String(t), S.font, size || S.fontSize);
     const paper = PAPERS[S.paper];
@@ -688,36 +771,92 @@
     (function walk(items) { for (const it of items) { if (it.kind === "conn") usedLetters.add(it.letter); if (it.branches) it.branches.forEach((b) => walk(b.items)); } })(tree);
     const nextLetter = () => { for (let c = 65; c < 91; c++) { const l = String.fromCharCode(c); if (!usedLetters.has(l)) { usedLetters.add(l); return l; } } return "Z"; };
     const rest = (i) => { let r = 0; for (let j = i + 1; j < tree.length; j++) r += tree[j].h + gapBefore(tree[j]); return r; };
-    let page = { items: [], entry: null, exit: null }, hh = 0;
-    tree.forEach((it, i) => {
-      if (it.kind === "conn" && i > 0 && i < tree.length - 1) {
-        page.exit = it.letter; page.exitRi = it.ri; pages.push(page);
-        page = { items: [], entry: it.letter, entryRi: it.ri, exit: null }; hh = connD; return;
+    // Long charts wrap into side-by-side columns on one sheet: the flow runs down a column,
+    // then an arrow goes up the gutter to the top of the next column.
+    const nrm = (x) => String(x || "").trim().replace(/^step\s+/i, "").replace(/^\((.*)\)$/, "$1").toLowerCase();
+    function planColumns() {
+      const n = tree.length, real = tree.filter((it) => it.kind !== "goto");
+      if (S.wrap === "off" || real.length < 6 || tree.some((it) => it.kind === "conn")) return null;
+      const hOf = (a, b) => { let h = 0; for (let i = a; i < b; i++) h += tree[i].h + (i > a ? gapBefore(tree[i]) : 0); return h; };
+      const wOf = (a, b) => { let wL = 0, wR = 0; for (let i = a; i < b; i++) { wL = Math.max(wL, tree[i].wL); wR = Math.max(wR, tree[i].wR); } return { wL, wR }; };
+      const idxOf = (t) => { const k = nrm(t); return tree.findIndex((it) => (it.num && nrm(it.num) === k) || nrm(it.text) === k); };
+      const spans = [];
+      tree.forEach((it, i) => {
+        (function walk(x) {
+          if (x.kind === "goto") { const j = idxOf(x.target); if (j >= 0) spans.push([Math.min(i, j), Math.max(i, j)]); }
+          if (x.branches) x.branches.forEach((b) => b.items.forEach(walk));
+        })(it);
+      });
+      const totalH = hOf(0, n), gutter = Math.max(S.gapX * 3.2, 56);
+      const cuts = []; for (let p = 2; p <= n - 2; p++) if (tree[p].kind !== "goto") cuts.push(p);
+      const opts = cuts.map((p) => [p]);
+      if (real.length >= 9) for (const p of cuts) for (const q of cuts) if (q >= p + 2) opts.push([p, q]);
+      let best = null;
+      for (const o of opts) {
+        const b = [0].concat(o, [n]), cols = []; for (let k = 0; k < b.length - 1; k++) cols.push([b[k], b[k + 1]]);
+        const crossing = spans.filter(([lo, hi]) => o.some((p) => lo < p && p <= hi)).length;
+        const w = cols.reduce((t, [a, c]) => { const x = wOf(a, c); return t + x.wL + x.wR; }, 0) + gutter * (cols.length - 1) + (crossing ? S.gapX * 1.4 : 0);
+        const maxH = Math.max(...cols.map(([a, c]) => hOf(a, c))) + S.gapY * 0.6 + (crossing ? S.gapY : 0);
+        if (w > use.w || maxH > availH) continue;
+        const score = maxH + crossing * 0.15 * totalH + (cols.length - 2) * 0.12 * totalH;
+        if (!best || score < best.score) best = { cols, score, gutter, wOf };
       }
-      const started = page.items.length || page.entry;
-      let need = (started ? gapBefore(it) : 0) + it.h;
-      const fitsAll = hh + need + rest(i) <= availH, reserve = (i < tree.length - 1 && !fitsAll) ? S.gapY + connD : 0;
-      if (page.items.length && it.kind !== "goto" && hh + need + reserve > availH) {
-        const l = nextLetter();
-        page.exit = l; pages.push(page);
-        page = { items: [], entry: l, exit: null, auto: true }; hh = connD; need = S.gapY + it.h;
-      }
-      page.items.push(it); hh += need;
-    });
-    pages.push(page);
-
-    const ctxs = pages.map((pg, pi) => {
-      const ctx = newCtx(pi); let ports = [], y = 0;
-      const circle = (letter, yy, ri) => { ctx.shapes.push({ shape: "circle", cx: 0, cy: yy + connD / 2, w: connD, h: connD, lines: [letter], ri: ri == null ? -1 : ri, num: "", kind: "conn", letter }); };
-      if (pg.entry) { circle(pg.entry, 0, pg.entryRi); ports = [{ pts: [P(0, connD)] }]; y = connD + S.gapY; }
-      ports = placeSeq(pg.items, 0, y, ctx, ports);
-      if (pg.exit) {
-        const bottom = Math.max(0, ...ctx.shapes.map((s) => s.cy + s.h / 2)) + S.gapY;
-        if (ports.length) connect(ports, P(0, bottom), ctx);
-        circle(pg.exit, bottom, pg.exitRi);
-      }
+      return best;
+    }
+    function placeColumns(plan) {
+      const ctx = newCtx(0); let x = 0, ports = [], prev = null;
+      plan.cols.forEach(([a, b], k) => {
+        const w = plan.wOf(a, b);
+        if (prev) {
+          x = prev.x + prev.wR + plan.gutter + w.wL;
+          if (ports.length) {
+            const yb = prev.bottom + S.gapY * 0.5, lane = prev.x + prev.wR + S.gapX * 1.0, top = -S.gapY * 0.6;
+            const jn = joinTo(ports, P(prev.x, yb), ctx);
+            ports = [{ pts: jn.pts.concat([P(lane, yb), P(lane, top), P(x, top)]) }];
+          }
+        }
+        const before = ctx.shapes.length;
+        ports = placeSeq(tree.slice(a, b), x, 0, ctx, ports);
+        const bottom = Math.max(0, ...ctx.shapes.slice(before).map((sh) => sh.cy + sh.h / 2));
+        prev = { x, wR: w.wR, bottom };
+      });
       return ctx;
-    });
+    }
+    const colPlan = planColumns();
+    let ctxs;
+    if (colPlan) ctxs = [placeColumns(colPlan)];
+    else {
+      let page = { items: [], entry: null, exit: null }, hh = 0;
+      tree.forEach((it, i) => {
+        if (it.kind === "conn" && i > 0 && i < tree.length - 1) {
+          page.exit = it.letter; page.exitRi = it.ri; pages.push(page);
+          page = { items: [], entry: it.letter, entryRi: it.ri, exit: null }; hh = connD; return;
+        }
+        const started = page.items.length || page.entry;
+        let need = (started ? gapBefore(it) : 0) + it.h;
+        const fitsAll = hh + need + rest(i) <= availH, reserve = (i < tree.length - 1 && !fitsAll) ? S.gapY + connD : 0;
+        if (page.items.length && it.kind !== "goto" && hh + need + reserve > availH) {
+          const l = nextLetter();
+          page.exit = l; pages.push(page);
+          page = { items: [], entry: l, exit: null, auto: true }; hh = connD; need = S.gapY + it.h;
+        }
+        page.items.push(it); hh += need;
+      });
+      pages.push(page);
+
+      ctxs = pages.map((pg, pi) => {
+        const ctx = newCtx(pi); let ports = [], y = 0;
+        const circle = (letter, yy, ri) => { ctx.shapes.push({ shape: "circle", cx: 0, cy: yy + connD / 2, w: connD, h: connD, lines: [letter], ri: ri == null ? -1 : ri, num: "", kind: "conn", letter }); };
+        if (pg.entry) { circle(pg.entry, 0, pg.entryRi); ports = [{ pts: [P(0, connD)] }]; y = connD + S.gapY; }
+        ports = placeSeq(pg.items, 0, y, ctx, ports);
+        if (pg.exit) {
+          const bottom = Math.max(0, ...ctx.shapes.map((s) => s.cy + s.h / 2)) + S.gapY;
+          if (ports.length) connect(ports, P(0, bottom), ctx);
+          circle(pg.exit, bottom, pg.exitRi);
+        }
+        return ctx;
+      });
+    }
 
     // ---- loops and jumps
     const norm = (s) => String(s || "").trim().replace(/^step\s+/i, "").replace(/^\((.*)\)$/, "$1").toLowerCase();
@@ -801,6 +940,34 @@
           }
           bad += (ctx.vert[g.key + s.dir] || 0) * 2;
           cands.push({ pts, bad, len, s });
+        }
+        // a loop back can also go around the outside of the chart: down, across underneath,
+        // up the far side and into the target (used when the direct way would cross things)
+        if (T.s.cy < Math.max(...srcs.map((s) => last(s.pts).y)) + S.gapY) {
+          const ys = bx.map((b) => b.y1).concat(segs.map((sg) => Math.max(sg[0].y, sg[1].y)));
+          const yLow = Math.max(...ys) + S.gapY * 0.6, ty = T.s.cy;
+          for (const s of srcs) for (const sd of ["left", "right"]) {
+            const st = last(s.pts), sg = sd === "left" ? -1 : 1, pre = s.pts.slice();
+            const xs = bx.map((b) => (sd === "left" ? b.x0 : b.x1)).concat(segs.map((q) => (sd === "left" ? Math.min(q[0].x, q[1].x) : Math.max(q[0].x, q[1].x))));
+            const xOut = (sd === "left" ? Math.min(...xs) : Math.max(...xs)) + sg * S.gapX * 0.6;
+            if (s.dir) {
+              const dsg = s.dir === "left" ? -1 : 1;
+              let edge = st.x;
+              for (const b of bx) if (b.y1 >= st.y - 1 && b.y0 <= yLow && (dsg < 0 ? b.x1 > st.x - S.gapX * 1.2 && b.x0 < st.x : b.x0 < st.x + S.gapX * 1.2 && b.x1 > st.x)) edge = dsg < 0 ? Math.min(edge, b.x0) : Math.max(edge, b.x1);
+              let dx = edge + dsg * S.gapX * 0.6;
+              if (g.label) dx = dsg < 0 ? Math.min(dx, st.x - (m(g.label) + 12)) : Math.max(dx, st.x + m(g.label) + 12);
+              pre.push(P(dx, st.y), P(dx, yLow));
+            } else pre.push(P(st.x, yLow));
+            const pts = pre.concat([P(xOut, yLow), P(xOut, ty), P(sd === "left" ? tb.x0 : tb.x1, ty)]);
+            let bad = 0, len = 0;
+            for (const ns of segsOf(pts).slice(s.pts.length - 1)) {
+              len += Math.abs(ns[0].x - ns[1].x) + Math.abs(ns[0].y - ns[1].y);
+              for (const q of segs) if (cross(ns[0], ns[1], q[0], q[1])) bad++;
+              for (const b of bx) if (hitsBox(ns[0], ns[1], b)) bad += 3;
+            }
+            bad += (ctx.vert[g.key + s.dir] || 0) * 2;
+            cands.push({ pts, bad, len, s });
+          }
         }
         cands.sort((a, b) => a.bad - b.bad || a.len - b.len);
         const best = cands[0];
@@ -894,7 +1061,7 @@
     });
     if (!rows.length) issues.push({ sev: "note", msg: "No steps yet." });
     issues.sort((a, b) => (a.sev === b.sev ? 0 : a.sev === "violation" ? -1 : 1));
-    return { pages: out, issues, style: S, tree };
+    return { pages: out, issues, style: S, tree, columns: colPlan ? colPlan.cols.length : 0 };
   }
 
   function tidy(pts) {
@@ -1017,5 +1184,5 @@
   }
 
   return { PT_CM, PAPERS, USPTO_MARGINS, MIN_LETTER_CM, FONTS, SHAPES, HEADS, PRESETS, minFontSize, usptoStyle, webStyle, normStyle,
-    parseOutline, toOutline, parseClaim, shortLabel, splitClaims, claimsToFigures, parseDescription, textToFigures, rowKind, isDecisionRow, parentOf, buildTree, layout, fitOneSheet, toSVG, pathD, describe };
+    parseOutline, toOutline, parseClaim, shortLabel, commandLabel, splitClaims, claimsToFigures, parseDescription, textToFigures, rowKind, isDecisionRow, parentOf, buildTree, layout, fitOneSheet, toSVG, pathD, describe };
 });

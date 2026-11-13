@@ -32,7 +32,10 @@ ok(D.issues.some((i) => /Numeral 102 is used/.test(i.msg)) && D.issues.some((i) 
 ok(dup.every((r, i) => r.num === ["102", "102", ""][i]), "numerals are never assigned or changed");
 
 const long = C.parseOutline(Array.from({ length: 18 }, (_, i) => (100 + 2 * i) + ": Step " + (i + 1)).join("\n"));
-const P = C.layout({ label: "5", rows: long, style: C.usptoStyle() }, measure);
+const P = C.layout({ label: "5", rows: long, style: Object.assign(C.usptoStyle(), { wrap: "off" }) }, measure);
+const W = C.layout({ label: "5", rows: long, style: C.usptoStyle() }, measure);
+const arrows = W.pages[0] ? W.pages[0].ops.filter((o) => o.cls === "edge").length : 0;
+ok(W.pages.length === 1 && !W.issues.some((i) => i.sev === "violation") && !W.issues.some((i) => /crossing/.test(i.msg)) && arrows >= 17, "a long chart wraps into columns on one sheet, joined by an arrow");
 const letters = (pg) => pg.ops.filter((o) => o.t === "text" && /^[A-Z]$/.test(o.s)).map((o) => o.s);
 ok(P.pages.length >= 2 && letters(P.pages[0]).includes("A") && letters(P.pages[1]).includes("A"), "long chart continues on the next sheet through connector A");
 ok(P.pages[0].label === "5A" && P.pages[1].label === "5B", "partial views labelled 5A, 5B");
@@ -58,8 +61,8 @@ const SET = "1. A method for signing in a user, the method comprising:\nreceivin
 const figs = C.textToFigures(SET);
 ok(figs.kind === "claims" && figs.figures.length === 2 && figs.figures[0].claim === 1 && figs.figures[1].claim === 5 && figs.figures[0].folded === 2, "claim set: one figure per independent method claim, dependents counted");
 const o1 = C.toOutline(figs.figures[0].rows);
-ok(o1 === "Receiving a sign-in request from a client device\nDetermining whether the password is correct {diamond}\n    Yes:\n        Creating a session token\n            wherein the session token expires after one hour\n    No:\n        Counting a failed attempt\nTransmitting the session token", "claim 1 with its dependents:\n" + o1);
-ok(C.toOutline(figs.figures[1].rows) === "Receiving a reset request\nSending a link\n    wherein the link expires", "claim 5 with claim 6 folded in");
+ok(o1 === "Receive sign-in request from client device\nIs the password correct?\n    Yes:\n        Create session token\n            wherein the session token expires after one hour\n    No:\n        Count failed attempt\nTransmit session token", "claim 1 with its dependents:\n" + o1);
+ok(C.toOutline(figs.figures[1].rows) === "Receive reset request\nSend link\n    wherein the link expires", "claim 5 with claim 6 folded in");
 ok(figs.figures.every((f) => f.rows.every((r) => !r.num)), "claim sets get no numerals");
 const desc = C.textToFigures("The customer adds an item and then goes to checkout. If the customer has an account, they sign in; otherwise, they enter an address. If the charge fails, go back to checkout. Finally, the receipt is emailed.");
 ok(desc.kind === "description" && C.toOutline(desc.figures[0].rows) === "Start\nAdd an item\nGoes to checkout\nDoes the customer have an account?\n    Yes:\n        Sign in\n    No:\n        Enter an address\nDoes the charge fail?\n    Yes:\n        -> Goes to checkout\nThe receipt is emailed\nEnd", "description becomes steps, decisions and a loop");
@@ -70,12 +73,12 @@ ok(C.textToFigures("1. Fill the kettle\n2. Boil the water\n3. Pour").figures[0].
 // repeat steps -> loop; long claim steps -> short labels; fit on one sheet
 const RADAR = "1. A method for calculating a change in percent voids in a medium, the method comprising:\n(a) using a radar system having a transmitting antenna and a receiving antenna, transmitting and receiving at least one electromagnetic wave to obtain a reference radar measurement for a reference location of a medium, the at least one electromagnetic wave being transmitted at a predetermined incidence angle;\n(b) using the predetermined incidence angle, an effective dielectric of the medium, and the reference radar measurement, calculating a transmission angle of the electromagnetic wave through the medium at the reference location and calculating a reference reflection coefficient of an electromagnetic wave reflection at the reference location;\n(c) using the radar system transmitting and receiving another electromagnetic wave to obtain a second radar measurement at a second location in the medium, the another electromagnetic wave being transmitted at the predetermined incidence angle;\n(d) calculating a percent change of reflection coefficients between the reference reflection coefficient and the second reflection coefficient;\n(e) graphically generating a % void-percent reflection coefficient (PV-PRC) plot and extracting from the plot a reflection conversion factor correlating changes in reflection coefficient to changes in percent voids in the medium;\n(f) repeating steps (c) to (e) for multiple sample locations in an area of the medium, each sample location comprising a said second location; and\n(g) generating a spatial distribution map of the area of the medium.";
 const rr = C.textToFigures(RADAR).figures[0].rows, ro = C.toOutline(rr);
-ok(/\nMore sample locations\?\n    Yes: -> Transmitting and receiving another electromagnetic wave to obtain a second radar measurement\n    No:\nGenerating a spatial/.test(ro), "repeating steps (c) to (e) becomes a loop back to step (c):\n" + ro);
-ok(rr.filter((r) => !r.level).every((r) => r.text.split(/\s+/).length <= 14) && /^Calculating a percent change of reflection coefficients$/m.test(ro) && /^Generating a PV-PRC plot and extracting from the plot a reflection conversion factor$/m.test(ro), "long claim steps become short labels, acronym used");
+ok(/\nMore sample locations\?\n    Yes: -> Obtain second radar measurement at second location\n    No:\nGenerate spatial/.test(ro), "repeating steps (c) to (e) becomes a loop back to step (c):\n" + ro);
+ok(rr.filter((r) => !r.level).every((r) => r.text.split(/\s+/).length <= 10) && /^Obtain reference radar measurement for reference location$/m.test(ro) && /^Calculate transmission angle and reference reflection coefficient$/m.test(ro) && /^Calculate percent change of reflection coefficients$/m.test(ro) && /^Generate PV-PRC plot and extract reflection conversion factor$/m.test(ro), "long claim steps become short commands, acronym used:\n" + ro);
 ok(C.textToFigures(RADAR, { short: false }).figures[0].rows[0].text.length > 200, "full claim wording on request");
 ok(/More cups\?/.test(C.toOutline(C.textToFigures("1. A method comprising: (a) heating water; (b) pouring it into a cup; and (c) repeating steps (a) and (b) for each additional cup.").figures[0].rows)), "each additional cup -> More cups?");
-ok(/No: -> Mixing/.test(C.toOutline(C.textToFigures("1. A method comprising: (a) mixing the batter; (b) testing the batter; and (c) repeating steps (a) and (b) until the batter is smooth.").figures[0].rows)), "until -> No branch loops");
-const tall = { label: "9", rows: C.parseOutline(Array.from({ length: 11 }, (_, i) => (100 + 2 * i) + ": Calculate a transmission angle and a second reflection coefficient " + i).join("\n")), style: C.usptoStyle() };
+ok(/No: -> Mix batter/.test(C.toOutline(C.textToFigures("1. A method comprising: (a) mixing the batter; (b) testing the batter; and (c) repeating steps (a) and (b) until the batter is smooth.").figures[0].rows)), "until -> No branch loops");
+const tall = { label: "9", rows: C.parseOutline(Array.from({ length: 11 }, (_, i) => (100 + 2 * i) + ": Calculate a transmission angle and a second reflection coefficient " + i).join("\n")), style: Object.assign(C.usptoStyle(), { wrap: "off" }) };
 const before = C.layout(tall, measure).pages.length, fitted = C.fitOneSheet(tall, measure);
 ok(before > 1 && fitted && C.layout(Object.assign({}, tall, { style: fitted }), measure).pages.length === 1, "fit on one sheet: " + before + " sheets -> 1");
 
